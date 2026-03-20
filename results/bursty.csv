@@ -1,0 +1,4 @@
+engine,profile,orders,throughput_ops_per_sec,p50_ns,p95_ns,p99_ns,max_queue_depth,total_fills,total_rejects
+baseline_single_thread,bursty,100000,8361903.17,83.00,250.00,334.00,0,83715,12031
+optimized_single_thread,bursty,100000,11525550.71,42.00,167.00,250.00,0,83715,12031
+optimized_concurrent_pipeline,bursty,100000,9404572.97,3776208.00,6397709.00,6448250.00,65536,83715,12031

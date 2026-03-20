@@ -1,0 +1,5 @@
+build/
+results/perf_*.csv
+perf.out
+perf.folded
+flamegraph.svg
