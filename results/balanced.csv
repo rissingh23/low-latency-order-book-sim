@@ -1,4 +1,4 @@
-engine,profile,orders,throughput_ops_per_sec,p50_ns,p95_ns,p99_ns,max_queue_depth,total_fills,total_rejects
-baseline_single_thread,balanced,100000,4445959.23,167.00,458.00,625.00,0,73156,15917
-optimized_single_thread,balanced,100000,8075153.19,83.00,250.00,334.00,0,73156,15917
-optimized_concurrent_pipeline,balanced,100000,7805589.00,5074667.00,7509000.00,7584333.00,65536,73156,15917
+engine,profile,orders,throughput_ops_per_sec,service_p50_ns,service_p95_ns,service_p99_ns,end_to_end_p50_ns,end_to_end_p95_ns,end_to_end_p99_ns,queue_delay_p50_ns,queue_delay_p95_ns,queue_delay_p99_ns,max_queue_depth,total_fills,total_rejects
+baseline_single_thread,balanced,20000,9289726.12,83.00,208.00,292.00,83.00,208.00,292.00,0.00,0.00,0.00,0,14587,3176
+optimized_single_thread,balanced,20000,12185217.75,42.00,125.00,167.00,42.00,125.00,167.00,0.00,0.00,0.00,0,14587,3176
+optimized_concurrent_pipeline,balanced,20000,7445323.41,42.00,125.00,167.00,907042.00,1667125.00,1726750.00,906917.00,1667084.00,1726750.00,14791,14587,3176

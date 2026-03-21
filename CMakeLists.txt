@@ -15,7 +15,9 @@ add_library(
   src/engines/baseline_order_book.cpp
   src/engines/optimized_order_book.cpp
   src/workload.cpp
+  src/dataset.cpp
   src/benchmark.cpp
+  src/replay.cpp
 )
 
 target_include_directories(lob_core PUBLIC include)

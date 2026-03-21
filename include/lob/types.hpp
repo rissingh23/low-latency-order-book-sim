@@ -63,6 +63,16 @@ struct TopOfBook {
   std::optional<Qty> best_ask_qty{};
 };
 
+struct DepthLevel {
+  Price price{};
+  Qty qty{};
+};
+
+struct BookDepth {
+  std::vector<DepthLevel> bids{};
+  std::vector<DepthLevel> asks{};
+};
+
 struct ProcessResult {
   EventStatus status{EventStatus::Accepted};
   Qty filled_qty{};
@@ -73,12 +83,19 @@ struct ProcessResult {
 
 struct RunSummary {
   std::string engine_name{};
+  std::string input_label{};
   WorkloadProfile profile{WorkloadProfile::Balanced};
   std::size_t order_count{};
   double throughput_ops_per_sec{};
-  double p50_ns{};
-  double p95_ns{};
-  double p99_ns{};
+  double service_p50_ns{};
+  double service_p95_ns{};
+  double service_p99_ns{};
+  double end_to_end_p50_ns{};
+  double end_to_end_p95_ns{};
+  double end_to_end_p99_ns{};
+  double queue_delay_p50_ns{};
+  double queue_delay_p95_ns{};
+  double queue_delay_p99_ns{};
   std::uint64_t max_queue_depth{};
   std::uint64_t total_fills{};
   std::uint64_t total_rejects{};

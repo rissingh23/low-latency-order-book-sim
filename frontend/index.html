@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>LOB Terminal</title>
+    <link rel="stylesheet" href="/frontend/styles.css" />
+  </head>
+  <body>
+    <main class="page">
+      <header class="topbar">
+        <div class="brand-lockup">
+          <p class="eyebrow">Low-Latency Order Book Simulator</p>
+          <h1>LOB Terminal</h1>
+        </div>
+        <button id="reload-button" class="accent-button">Reload</button>
+      </header>
+
+      <nav class="tabbar">
+        <button class="tab-button active" data-tab="simulator">Simulator</button>
+        <button class="tab-button" data-tab="comparison">Comparison</button>
+        <button class="tab-button" data-tab="analysis">Analysis</button>
+      </nav>
+
+      <section id="tab-simulator" class="tab-panel active">
+        <section class="sim-shell">
+          <aside class="sim-rail">
+            <section class="panel playback-panel">
+              <div class="panel-header">
+                <h2>Playback</h2>
+                <span id="status-banner" class="status-text">Waiting for data...</span>
+              </div>
+              <div class="selector-stack">
+                <div class="selector-block">
+                  <span class="selector-label">Dataset</span>
+                  <div class="segmented-control" id="dataset-control">
+                    <button class="segment-button active" data-dataset="aapl_lobster">AAPL</button>
+                    <button class="segment-button" data-dataset="balanced">Balanced</button>
+                    <button class="segment-button" data-dataset="cancel_heavy">Cancel</button>
+                    <button class="segment-button" data-dataset="bursty">Bursty</button>
+                  </div>
+                </div>
+                <div class="selector-block">
+                  <span class="selector-label">Mode</span>
+                  <div class="segmented-control" id="engine-control">
+                    <button class="segment-button" data-engine="baseline">Baseline</button>
+                    <button class="segment-button active" data-engine="optimized">Optimized</button>
+                    <button class="segment-button" data-engine="pipeline">Pipeline</button>
+                  </div>
+                </div>
+              </div>
+              <div class="transport">
+                <button id="play-button">Play</button>
+                <button id="pause-button">Pause</button>
+                <button id="step-button">Step</button>
+                <button id="reset-button">Reset</button>
+              </div>
+              <div class="scrubber-wrap">
+                <input id="timeline" type="range" min="0" max="0" value="0" />
+                <div class="timeline-meta">
+                  <span id="step-label">Step 0 / 0</span>
+                  <span id="speed-label">20 steps/sec</span>
+                </div>
+              </div>
+              <label class="field field-inline">
+                <span>Speed</span>
+                <input id="speed-range" type="range" min="1" max="100" value="20" />
+              </label>
+            </section>
+
+            <section class="panel event-panel">
+              <div class="panel-header">
+                <h2>Current Event</h2>
+                <div id="event-badge" class="event-badge">-</div>
+              </div>
+              <div id="event-grid" class="detail-grid"></div>
+              <div class="result-strip">
+                <div class="result-label">Result</div>
+                <div id="result-pill" class="result-pill">-</div>
+              </div>
+              <div id="result-grid" class="detail-grid"></div>
+            </section>
+
+            <section class="panel engine-panel-live">
+              <div class="panel-header">
+                <h2>Engine Path</h2>
+                <span id="engine-pill" class="ghost-pill">-</span>
+              </div>
+              <div id="pipeline-visual" class="pipeline-visual">
+                <div class="stage stage-source">
+                  <span class="stage-label">Ingress</span>
+                  <div class="stage-track"><div id="ingress-fill" class="stage-fill"></div></div>
+                  <div id="ingress-queue" class="queue-strip"></div>
+                </div>
+                <div class="pipeline-link"></div>
+                <div class="stage stage-match">
+                  <span class="stage-label">Matcher</span>
+                  <div class="stage-core"><div id="matcher-pulse" class="matcher-pulse"></div></div>
+                  <div id="matcher-active" class="matcher-active">No active token</div>
+                </div>
+                <div class="pipeline-link"></div>
+                <div class="stage stage-sink">
+                  <span class="stage-label">Egress</span>
+                  <div class="stage-track"><div id="egress-fill" class="stage-fill"></div></div>
+                  <div id="egress-queue" class="queue-strip"></div>
+                </div>
+              </div>
+              <div class="pressure-header">
+                <span id="buy-pressure" class="buy-text">-</span>
+                <div class="pressure-bar">
+                  <div id="buy-pressure-bar" class="pressure-fill buy-fill"></div>
+                  <div id="sell-pressure-bar" class="pressure-fill sell-fill"></div>
+                </div>
+                <span id="sell-pressure" class="sell-text">-</span>
+              </div>
+              <div class="micro-metrics">
+                <div class="micro-item">
+                  <span>Gap</span>
+                  <strong id="spread-value">-</strong>
+                </div>
+                <div class="micro-item">
+                  <span>Center</span>
+                  <strong id="mid-price">-</strong>
+                </div>
+                <div class="micro-item">
+                  <span>Visible Bid</span>
+                  <strong id="best-bid-qty">-</strong>
+                </div>
+                <div class="micro-item">
+                  <span>Visible Ask</span>
+                  <strong id="best-ask-qty">-</strong>
+                </div>
+              </div>
+            </section>
+          </aside>
+
+          <section class="workspace">
+            <section class="book-surface">
+              <div class="book-topline">
+                <div>
+                  <p class="surface-label">Live Ladder</p>
+                  <div class="center-price-row">
+                    <span id="best-bid" class="price-chip buy-chip">-</span>
+                    <span class="center-separator"></span>
+                    <span id="best-ask" class="price-chip sell-chip">-</span>
+                  </div>
+                </div>
+                <div class="book-switch mono">
+                  <span class="switch-pill active">Order Book</span>
+                  <span class="switch-pill">Trades</span>
+                </div>
+              </div>
+              <div class="book-header">
+                <span>Size</span>
+                <span>Bid</span>
+                <span>Ask</span>
+                <span>Size</span>
+              </div>
+              <div id="book-rows" class="book-rows"></div>
+            </section>
+
+            <section class="stream-surface">
+              <div class="stream-panel">
+                <div class="panel-header">
+                  <h2>Event Stream</h2>
+                  <span class="ghost-pill">Recent</span>
+                </div>
+                <div id="order-tape" class="stream-list"></div>
+              </div>
+              <div class="stream-panel">
+                <div class="panel-header">
+                  <h2>Executions</h2>
+                  <span class="ghost-pill">Latest</span>
+                </div>
+                <div id="fills-list" class="stream-list"></div>
+              </div>
+            </section>
+          </section>
+        </section>
+      </section>
+
+      <section id="tab-comparison" class="tab-panel">
+        <div id="comparison-panel" class="comparison-panel">
+          <article class="engine-card">
+            <h2>Loading comparison...</h2>
+          </article>
+        </div>
+      </section>
+
+      <section id="tab-analysis" class="tab-panel">
+        <div id="analysis-panel" class="analysis-panel">
+          <article class="analysis-card">
+            <h2>Loading analysis...</h2>
+          </article>
+        </div>
+      </section>
+    </main>
+
+    <script type="module" src="/frontend/app.js"></script>
+  </body>
+  </html>

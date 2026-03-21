@@ -1,0 +1,4 @@
+engine,profile,orders,throughput_ops_per_sec,service_p50_ns,service_p95_ns,service_p99_ns,end_to_end_p50_ns,end_to_end_p95_ns,end_to_end_p99_ns,queue_delay_p50_ns,queue_delay_p95_ns,queue_delay_p99_ns,max_queue_depth,total_fills,total_rejects
+baseline_single_thread,lob_real_dataset,4,1714530.65,250.00,333.00,333.00,250.00,333.00,333.00,0.00,0.00,0.00,0,1,0
+optimized_single_thread,lob_real_dataset,4,4571428.57,166.00,166.00,166.00,166.00,166.00,166.00,0.00,0.00,0.00,0,1,0
+optimized_concurrent_pipeline,lob_real_dataset,4,115942.03,209.00,250.00,250.00,8542.00,8584.00,8584.00,8166.00,8416.00,8416.00,4,1,0

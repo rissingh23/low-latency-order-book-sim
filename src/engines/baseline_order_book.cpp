@@ -57,6 +57,20 @@ class BaselineOrderBook final : public IOrderBook {
     return snapshot;
   }
 
+  BookDepth snapshot_depth(std::size_t levels) const override {
+    BookDepth depth;
+    depth.bids.reserve(levels);
+    depth.asks.reserve(levels);
+
+    for (auto it = bids_.begin(); it != bids_.end() && depth.bids.size() < levels; ++it) {
+      depth.bids.push_back({.price = it->first, .qty = aggregate_qty(it->second)});
+    }
+    for (auto it = asks_.begin(); it != asks_.end() && depth.asks.size() < levels; ++it) {
+      depth.asks.push_back({.price = it->first, .qty = aggregate_qty(it->second)});
+    }
+    return depth;
+  }
+
  private:
   using BidMap = std::map<Price, std::deque<BaselineOrder>, std::greater<Price>>;
   using AskMap = std::map<Price, std::deque<BaselineOrder>, std::less<Price>>;
@@ -107,6 +121,8 @@ class BaselineOrderBook final : public IOrderBook {
     }
 
     const auto locator = index_it->second;
+    Qty cancelled_qty = 0;
+    Qty remaining_qty = 0;
     auto erase_from_level = [&](auto& levels) {
       auto level_it = levels.find(locator.price);
       if (level_it == levels.end()) {
@@ -119,21 +135,34 @@ class BaselineOrderBook final : public IOrderBook {
       if (it == orders.end()) {
         return false;
       }
-      orders.erase(it);
-      if (orders.empty()) {
-        levels.erase(level_it);
+      cancelled_qty = event.qty == 0 ? it->qty : std::min(event.qty, it->qty);
+      it->qty -= cancelled_qty;
+      remaining_qty = it->qty;
+      if (it->qty == 0) {
+        orders.erase(it);
+        if (orders.empty()) {
+          levels.erase(level_it);
+        }
       }
       return true;
     };
 
     const bool erased = locator.side == Side::Buy ? erase_from_level(bids_) : erase_from_level(asks_);
-    index_.erase(index_it);
 
     if (!erased) {
       return {.status = EventStatus::Rejected, .message = "order index corrupted"};
     }
 
-    return {.status = EventStatus::Cancelled, .message = "cancelled"};
+    if (remaining_qty == 0) {
+      index_.erase(index_it);
+    }
+
+    return {
+        .status = EventStatus::Cancelled,
+        .filled_qty = 0,
+        .remaining_qty = remaining_qty,
+        .message = remaining_qty == 0 ? "cancelled" : "partially cancelled",
+    };
   }
 
   void add_resting(const OrderEvent& event, Qty remaining) {

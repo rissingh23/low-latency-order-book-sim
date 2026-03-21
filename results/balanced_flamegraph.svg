@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1360" height="814" viewBox="0 0 1360 814">
+<rect width="100%" height="100%" fill="#0b0f14"/>
+<text x="36" y="42" fill="#edf2fa" font-family="Georgia, Times New Roman, serif" font-size="28">Balanced Benchmark Sample</text>
+<text x="36" y="68" fill="#93a1b5" font-family="Courier New, monospace" font-size="14">macOS sample collapsed by top-of-stack count</text>
+<text x="36" y="109" fill="#cfd7e6" font-family="Courier New, monospace" font-size="13">lob::(anonymous na</text>
+<rect x="170" y="90" width="1158" height="28" rx="8" fill="#7aa2ff" fill-opacity="0.92"/>
+<text x="182" y="109" fill="#05070a" font-family="Courier New, monospace" font-size="12">lob::(anonymous namespace)::BaselineOrderBook::process_event(lob::OrderEvent const&amp;) • 611</text>
+<text x="36" y="147" fill="#cfd7e6" font-family="Courier New, monospace" font-size="13">mach_continuous_ti</text>
+<rect x="170" y="128" width="553" height="28" rx="8" fill="#1dd89b" fill-opacity="0.92"/>
+<text x="182" y="147" fill="#05070a" font-family="Courier New, monospace" font-size="12">mach_continuous_time • 292</text>
+<text x="36" y="185" fill="#cfd7e6" font-family="Courier New, monospace" font-size="13">_platform_memmove</text>
+<rect x="170" y="166" width="314" height="28" rx="8" fill="#ff647d" fill-opacity="0.92"/>
+<text x="182" y="185" fill="#05070a" font-family="Courier New, monospace" font-size="12">_platform_memmove • 166</text>
+<text x="36" y="223" fill="#cfd7e6" font-family="Courier New, monospace" font-size="13">_xzm_free</text>
+<rect x="170" y="204" width="168" height="28" rx="8" fill="#ffc15c" fill-opacity="0.92"/>
+<text x="182" y="223" fill="#05070a" font-family="Courier New, monospace" font-size="12">_xzm_free • 89</text>
+<text x="36" y="261" fill="#cfd7e6" font-family="Courier New, monospace" font-size="13">_xzm_xzone_malloc_</text>
+<rect x="170" y="242" width="157" height="28" rx="8" fill="#8fe3ff" fill-opacity="0.92"/>
+<text x="182" y="261" fill="#05070a" font-family="Courier New, monospace" font-size="12">_xzm_xzone_malloc_tiny • 83</text>
+<text x="36" y="299" fill="#cfd7e6" font-family="Courier New, monospace" font-size="13">_free</text>
+<rect x="170" y="280" width="96" height="28" rx="8" fill="#ff9e64" fill-opacity="0.92"/>
+<text x="182" y="299" fill="#05070a" font-family="Courier New, monospace" font-size="12">_free • 51</text>
+<text x="36" y="337" fill="#cfd7e6" font-family="Courier New, monospace" font-size="13">lob::(anonymous na</text>
+<rect x="170" y="318" width="90" height="28" rx="8" fill="#7aa2ff" fill-opacity="0.92"/>
+<text x="182" y="337" fill="#05070a" font-family="Courier New, monospace" font-size="12">lob::(anonymous namespace)::BaselineOrderBook::match_order(lob::OrderEvent const&amp;, unsigned int&amp;, std::vector&lt;lob::Execution&gt;&amp;, bool) • 48</text>
+<text x="36" y="375" fill="#cfd7e6" font-family="Courier New, monospace" font-size="13">&lt;deduplicated_symb</text>
+<rect x="170" y="356" width="79" height="28" rx="8" fill="#1dd89b" fill-opacity="0.92"/>
+<text x="182" y="375" fill="#05070a" font-family="Courier New, monospace" font-size="12">&lt;deduplicated_symbol&gt; • 42</text>
+<text x="36" y="413" fill="#cfd7e6" font-family="Courier New, monospace" font-size="13">&lt;deduplicated_symb</text>
+<rect x="170" y="394" width="77" height="28" rx="8" fill="#ff647d" fill-opacity="0.92"/>
+<text x="182" y="413" fill="#05070a" font-family="Courier New, monospace" font-size="12">&lt;deduplicated_symbol&gt; • 41</text>
+<text x="36" y="451" fill="#cfd7e6" font-family="Courier New, monospace" font-size="13">mach_absolute_time</text>
+<rect x="170" y="432" width="72" height="28" rx="8" fill="#ffc15c" fill-opacity="0.92"/>
+<text x="182" y="451" fill="#05070a" font-family="Courier New, monospace" font-size="12">mach_absolute_time • 38</text>
+<text x="36" y="489" fill="#cfd7e6" font-family="Courier New, monospace" font-size="13">std::__tree_remove</text>
+<rect x="170" y="470" width="53" height="28" rx="8" fill="#8fe3ff" fill-opacity="0.92"/>
+<text x="182" y="489" fill="#05070a" font-family="Courier New, monospace" font-size="12">std::__tree_remove[abi:ne200100]&lt;std::__tree_node_base&lt;void*&gt;*&gt;(std::__tree_node_base&lt;void*&gt;*, std::__tree_node_base&lt;void*&gt;*) • 28</text>
+<text x="36" y="527" fill="#cfd7e6" font-family="Courier New, monospace" font-size="13">malloc_type_malloc</text>
+<rect x="170" y="508" width="39" height="28" rx="8" fill="#ff9e64" fill-opacity="0.92"/>
+<text x="182" y="527" fill="#05070a" font-family="Courier New, monospace" font-size="12">malloc_type_malloc • 21</text>
+<text x="36" y="565" fill="#cfd7e6" font-family="Courier New, monospace" font-size="13">std::__tree_balanc</text>
+<rect x="170" y="546" width="30" height="28" rx="8" fill="#7aa2ff" fill-opacity="0.92"/>
+<text x="182" y="565" fill="#05070a" font-family="Courier New, monospace" font-size="12">std::__tree_balance_after_insert[abi:ne200100]&lt;std::__tree_node_base&lt;void*&gt;*&gt;(std::__tree_node_base&lt;void*&gt;*, std::__tree_node_base&lt;void*&gt;*) • 16</text>
+<text x="36" y="603" fill="#cfd7e6" font-family="Courier New, monospace" font-size="13">_xzm_xzone_malloc</text>
+<rect x="170" y="584" width="26" height="28" rx="8" fill="#1dd89b" fill-opacity="0.92"/>
+<text x="182" y="603" fill="#05070a" font-family="Courier New, monospace" font-size="12">_xzm_xzone_malloc • 14</text>
+<text x="36" y="641" fill="#cfd7e6" font-family="Courier New, monospace" font-size="13">__bzero</text>
+<rect x="170" y="622" width="22" height="28" rx="8" fill="#ff647d" fill-opacity="0.92"/>
+<text x="182" y="641" fill="#05070a" font-family="Courier New, monospace" font-size="12">__bzero • 12</text>
+<text x="36" y="679" fill="#cfd7e6" font-family="Courier New, monospace" font-size="13">_xzm_xzone_malloc_</text>
+<rect x="170" y="660" width="20" height="28" rx="8" fill="#ffc15c" fill-opacity="0.92"/>
+<text x="182" y="679" fill="#05070a" font-family="Courier New, monospace" font-size="12">_xzm_xzone_malloc_freelist_outlined • 11</text>
+<text x="36" y="717" fill="#cfd7e6" font-family="Courier New, monospace" font-size="13">lob::run_single_th</text>
+<rect x="170" y="698" width="20" height="28" rx="8" fill="#8fe3ff" fill-opacity="0.92"/>
+<text x="182" y="717" fill="#05070a" font-family="Courier New, monospace" font-size="12">lob::run_single_thread_benchmark(lob::IOrderBook&amp;, std::basic_string_view&lt;char&gt;, std::vector&lt;lob::OrderEvent&gt; const&amp;) • 11</text>
+<text x="36" y="755" fill="#cfd7e6" font-family="Courier New, monospace" font-size="13">_xzm_xzone_malloc_</text>
+<rect x="170" y="736" width="18" height="28" rx="8" fill="#ff9e64" fill-opacity="0.92"/>
+<text x="182" y="755" fill="#05070a" font-family="Courier New, monospace" font-size="12">_xzm_xzone_malloc_from_freelist_chunk • 10</text>
+</svg>

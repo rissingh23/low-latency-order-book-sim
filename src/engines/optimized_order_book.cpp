@@ -4,6 +4,7 @@
 #include <list>
 #include <map>
 #include <unordered_map>
+#include <utility>
 
 namespace lob {
 namespace {
@@ -15,8 +16,13 @@ struct OrderNode {
   Timestamp timestamp{};
 };
 
+struct LevelData {
+  std::list<OrderNode> orders{};
+  Qty total_qty{};
+};
+
 template <typename Comparator>
-using LevelMap = std::map<Price, std::list<OrderNode>, Comparator>;
+using LevelMap = std::map<Price, LevelData, Comparator>;
 
 struct OrderHandle {
   Side side{Side::Buy};
@@ -55,27 +61,33 @@ class OptimizedOrderBook final : public IOrderBook {
   TopOfBook snapshot_top_of_book() const override {
     TopOfBook snapshot;
     if (!bids_.empty()) {
-      const auto& [price, orders] = *bids_.begin();
+      const auto& [price, level] = *bids_.begin();
       snapshot.best_bid = price;
-      snapshot.best_bid_qty = aggregate_qty(orders);
+      snapshot.best_bid_qty = level.total_qty;
     }
     if (!asks_.empty()) {
-      const auto& [price, orders] = *asks_.begin();
+      const auto& [price, level] = *asks_.begin();
       snapshot.best_ask = price;
-      snapshot.best_ask_qty = aggregate_qty(orders);
+      snapshot.best_ask_qty = level.total_qty;
     }
     return snapshot;
   }
 
- private:
-  static Qty aggregate_qty(const std::list<OrderNode>& orders) {
-    Qty total = 0;
-    for (const auto& order : orders) {
-      total += order.qty;
+  BookDepth snapshot_depth(std::size_t levels) const override {
+    BookDepth depth;
+    depth.bids.reserve(levels);
+    depth.asks.reserve(levels);
+
+    for (auto it = bids_.begin(); it != bids_.end() && depth.bids.size() < levels; ++it) {
+      depth.bids.push_back({.price = it->first, .qty = it->second.total_qty});
     }
-    return total;
+    for (auto it = asks_.begin(); it != asks_.end() && depth.asks.size() < levels; ++it) {
+      depth.asks.push_back({.price = it->first, .qty = it->second.total_qty});
+    }
+    return depth;
   }
 
+ private:
   ProcessResult handle_limit(const OrderEvent& event) {
     if (event.qty == 0) {
       return {.status = EventStatus::Rejected, .message = "zero quantity"};
@@ -86,6 +98,7 @@ class OptimizedOrderBook final : public IOrderBook {
 
     Qty remaining = event.qty;
     std::vector<Execution> executions;
+    executions.reserve(8);
     match_order(event, remaining, executions, false);
 
     if (remaining > 0) {
@@ -102,6 +115,7 @@ class OptimizedOrderBook final : public IOrderBook {
 
     Qty remaining = event.qty;
     std::vector<Execution> executions;
+    executions.reserve(8);
     match_order(event, remaining, executions, true);
     return finalize_result(event, remaining, std::move(executions));
   }
@@ -113,22 +127,39 @@ class OptimizedOrderBook final : public IOrderBook {
     }
 
     auto& handle = it->second;
+    const Qty cancelled_qty = event.qty == 0 ? handle.order_it->qty : std::min(event.qty, handle.order_it->qty);
+    const Qty remaining_qty = handle.order_it->qty - cancelled_qty;
     if (handle.side == Side::Buy) {
       auto level_it = handle.bid_level;
-      level_it->second.erase(handle.order_it);
-      if (level_it->second.empty()) {
-        bids_.erase(level_it);
+      level_it->second.total_qty -= cancelled_qty;
+      handle.order_it->qty = remaining_qty;
+      if (handle.order_it->qty == 0) {
+        level_it->second.orders.erase(handle.order_it);
+        if (level_it->second.orders.empty()) {
+          bids_.erase(level_it);
+        }
       }
     } else {
       auto level_it = handle.ask_level;
-      level_it->second.erase(handle.order_it);
-      if (level_it->second.empty()) {
-        asks_.erase(level_it);
+      level_it->second.total_qty -= cancelled_qty;
+      handle.order_it->qty = remaining_qty;
+      if (handle.order_it->qty == 0) {
+        level_it->second.orders.erase(handle.order_it);
+        if (level_it->second.orders.empty()) {
+          asks_.erase(level_it);
+        }
       }
     }
-    order_index_.erase(it);
+    if (remaining_qty == 0) {
+      order_index_.erase(it);
+    }
 
-    return {.status = EventStatus::Cancelled, .message = "cancelled"};
+    return {
+        .status = EventStatus::Cancelled,
+        .filled_qty = 0,
+        .remaining_qty = remaining_qty,
+        .message = remaining_qty == 0 ? "cancelled" : "partially cancelled",
+    };
   }
 
   void add_resting(const OrderEvent& event, Qty remaining) {
@@ -142,8 +173,9 @@ class OptimizedOrderBook final : public IOrderBook {
     if (event.side == Side::Buy) {
       auto [level_it, inserted] = bids_.try_emplace(event.price);
       (void)inserted;
-      level_it->second.push_back(order);
-      auto order_it = std::prev(level_it->second.end());
+      level_it->second.orders.push_back(order);
+      level_it->second.total_qty += remaining;
+      auto order_it = std::prev(level_it->second.orders.end());
       order_index_[event.order_id] = {
           .side = Side::Buy,
           .price = event.price,
@@ -154,8 +186,9 @@ class OptimizedOrderBook final : public IOrderBook {
     } else {
       auto [level_it, inserted] = asks_.try_emplace(event.price);
       (void)inserted;
-      level_it->second.push_back(order);
-      auto order_it = std::prev(level_it->second.end());
+      level_it->second.orders.push_back(order);
+      level_it->second.total_qty += remaining;
+      auto order_it = std::prev(level_it->second.orders.end());
       order_index_[event.order_id] = {
           .side = Side::Sell,
           .price = event.price,
@@ -180,13 +213,15 @@ class OptimizedOrderBook final : public IOrderBook {
     if (event.side == Side::Buy) {
       while (remaining > 0 && !asks_.empty() && crosses(asks_.begin()->first)) {
         auto level_it = asks_.begin();
-        auto& orders = level_it->second;
+        auto& level = level_it->second;
+        auto& orders = level.orders;
         while (remaining > 0 && !orders.empty()) {
           auto order_it = orders.begin();
           const Qty trade_qty = std::min(remaining, order_it->qty);
           executions.push_back(make_execution(*order_it, event, trade_qty));
           remaining -= trade_qty;
           order_it->qty -= trade_qty;
+          level.total_qty -= trade_qty;
           if (order_it->qty == 0) {
             order_index_.erase(order_it->order_id);
             orders.erase(order_it);
@@ -199,13 +234,15 @@ class OptimizedOrderBook final : public IOrderBook {
     } else {
       while (remaining > 0 && !bids_.empty() && crosses(bids_.begin()->first)) {
         auto level_it = bids_.begin();
-        auto& orders = level_it->second;
+        auto& level = level_it->second;
+        auto& orders = level.orders;
         while (remaining > 0 && !orders.empty()) {
           auto order_it = orders.begin();
           const Qty trade_qty = std::min(remaining, order_it->qty);
           executions.push_back(make_execution(*order_it, event, trade_qty));
           remaining -= trade_qty;
           order_it->qty -= trade_qty;
+          level.total_qty -= trade_qty;
           if (order_it->qty == 0) {
             order_index_.erase(order_it->order_id);
             orders.erase(order_it);
