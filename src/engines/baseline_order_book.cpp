@@ -75,6 +75,8 @@ class BaselineOrderBook final : public IOrderBook {
   using BidMap = std::map<Price, std::deque<BaselineOrder>, std::greater<Price>>;
   using AskMap = std::map<Price, std::deque<BaselineOrder>, std::less<Price>>;
 
+  // The baseline intentionally recomputes level quantity by scanning the queue.
+  // That keeps the code simple and gives us a real "before optimization" reference.
   static Qty aggregate_qty(const std::deque<BaselineOrder>& orders) {
     Qty total = 0;
     for (const auto& order : orders) {
@@ -123,6 +125,8 @@ class BaselineOrderBook final : public IOrderBook {
     const auto locator = index_it->second;
     Qty cancelled_qty = 0;
     Qty remaining_qty = 0;
+    // Baseline cancel only stores side+price, so it still has to linearly search
+    // within the price level to find the actual resting order.
     auto erase_from_level = [&](auto& levels) {
       auto level_it = levels.find(locator.price);
       if (level_it == levels.end()) {
@@ -182,6 +186,8 @@ class BaselineOrderBook final : public IOrderBook {
   }
 
   void match_order(const OrderEvent& event, Qty& remaining, std::vector<Execution>& executions, bool is_market) {
+    // Limit orders only trade when they cross the current best price; market
+    // orders always cross as long as liquidity exists on the opposite side.
     auto crosses = [&](Price best_price) {
       if (is_market) {
         return true;
@@ -196,6 +202,7 @@ class BaselineOrderBook final : public IOrderBook {
       while (remaining > 0 && !asks_.empty() && crosses(asks_.begin()->first)) {
         auto level_it = asks_.begin();
         auto& queue = level_it->second;
+        // FIFO within a price level is what enforces time priority.
         while (remaining > 0 && !queue.empty()) {
           auto& resting = queue.front();
           const Qty trade_qty = std::min(remaining, resting.qty);
@@ -215,6 +222,7 @@ class BaselineOrderBook final : public IOrderBook {
       while (remaining > 0 && !bids_.empty() && crosses(bids_.begin()->first)) {
         auto level_it = bids_.begin();
         auto& queue = level_it->second;
+        // FIFO within a price level is what enforces time priority.
         while (remaining > 0 && !queue.empty()) {
           auto& resting = queue.front();
           const Qty trade_qty = std::min(remaining, resting.qty);

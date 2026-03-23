@@ -1,0 +1,4 @@
+engine,profile,orders,throughput_ops_per_sec,service_p50_ns,service_p95_ns,service_p99_ns,end_to_end_p50_ns,end_to_end_p95_ns,end_to_end_p99_ns,queue_delay_p50_ns,queue_delay_p95_ns,queue_delay_p99_ns,max_queue_depth,total_fills,total_rejects
+baseline_single_thread,lobster_normalized,5,2609603.34,208.00,250.00,250.00,208.00,250.00,250.00,0.00,0.00,0.00,0,1,0
+optimized_single_thread,lobster_normalized,5,6002400.96,125.00,166.00,166.00,125.00,166.00,166.00,0.00,0.00,0.00,0,1,0
+optimized_concurrent_pipeline,lobster_normalized,5,131147.54,209.00,291.00,291.00,9541.00,9625.00,9625.00,9291.00,9333.00,9333.00,5,1,0

@@ -1,7 +1,7 @@
 # Benchmark Comparison
 
-- Input: aapl_lobster_normalized
-- Orders: 48389
+- Input: bursty
+- Orders: 200000
 
 ## Clear Optimizations
 
@@ -10,13 +10,13 @@
 
 ## Measured Deltas
 
-- Optimized throughput vs baseline: 57.92%
+- Optimized throughput vs baseline: 61.78%
 - Optimized service p50 vs baseline: -50.60%
-- Optimized service p99 vs baseline: -32.80%
-- Pipeline throughput vs optimized: -42.27%
+- Optimized service p99 vs baseline: -66.40%
+- Pipeline throughput vs optimized: -47.55%
 - Pipeline service p50 vs optimized: 0.00%
-- Pipeline queue p50: 1679917.00 ns
-- Pipeline max queue depth: 33657
+- Pipeline queue p50: 6751625.00 ns
+- Pipeline max queue depth: 65536
 
 ## Interpretation
 

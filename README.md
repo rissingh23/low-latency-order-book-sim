@@ -1,98 +1,223 @@
 # Low-Latency Limit Order Book Simulator
 
-Portfolio-grade C++20 matching engine project focused on quant-dev signal: deterministic price-time priority matching, cache-aware data structures, staged optimization, and reproducible Linux-style benchmarking.
+Single-book C++20 matching engine project for quant-dev and systems interviews. The repo focuses on one question:
 
-## Plain-English Overview
+> How much faster can a price-time-priority order book get from better data structures, and what happens when we wrap that same matcher in a concurrent pipeline?
 
-An **order book** is the live list of buyers and sellers waiting to trade.
+## Abstract
 
-- A **bid** is a buy order.
-- An **ask** is a sell order.
-- A **limit order** says "buy up to this price" or "sell down to this price."
-- A **market order** says "trade immediately at the best available prices."
-- A **cancel** removes an order that is currently resting in the book.
+This project implements a deterministic limit order book with strict price-time priority for `LIMIT`, `MARKET`, and `CANCEL` events. It compares three execution modes:
 
-The matching engine applies **price-time priority**:
+- `baseline_single_thread`: simple reference implementation
+- `optimized_single_thread`: same matching rules, lower hot-path overhead
+- `optimized_concurrent_pipeline`: lock-free ingress/egress queues around the same single matching thread
 
-- better price trades first
-- if price ties, older orders trade first
+The optimized engine improves single-book throughput materially on both synthetic and real data. The concurrent pipeline keeps matcher service time low but worsens end-to-end latency under burst load because queueing dominates once the single matcher saturates.
 
-An **order book simulator** is a program that imitates that process without being a real exchange. It lets you inspect how orders match, how the book changes, and how fast the engine runs.
+## Research Question
 
-## What This Project Is
+For a single order book:
 
-This repo is both:
+1. Which data-structure choices actually reduce matcher latency?
+2. Does adding concurrency help if matching itself is still serialized?
+3. How do synthetic benchmark results compare with a normalized real event stream?
 
-- a market microstructure project, because it models exchange-style matching logic
-- a systems performance project, because it measures data structure choices, latency, throughput, and concurrency tradeoffs
+## System Model
 
-The project builds and compares three versions of the same matching idea:
+The engine simulates an exchange-style central limit order book.
 
-- **Baseline single-threaded engine**: simplest correct implementation
-- **Optimized single-threaded engine**: better order lookup and lower hot-path overhead
-- **Concurrent pipeline**: producer thread -> queue -> matcher thread -> queue -> consumer thread
+- A `bid` is a buy order.
+- An `ask` is a sell order.
+- A `limit order` rests in the book unless it crosses the opposite side.
+- A `market order` immediately consumes the best available liquidity.
+- A `cancel` removes some or all of a resting order.
+- `price-time priority` means better price wins first, then older order wins at the same price.
 
-The concurrent version does **not** make one order book match on multiple threads at once. It keeps one matching thread for determinism and moves transport around it into queues.
+This project intentionally stays single-book. That keeps the concurrency story honest: the pipeline is measuring handoff and queueing behavior, not pretending that one book can be matched in parallel without tradeoffs.
 
-## What It Does
-
-- Implements strict price-time priority for `LIMIT`, `MARKET`, and `CANCEL` orders.
-- Supports `BUY`/`SELL`, partial fills, full fills, resting liquidity, cancel rejection, and best bid/ask snapshots.
-- Compares three execution stages:
-  - baseline single-threaded book
-  - optimized single-threaded book
-  - optimized concurrent pipeline with lock-free SPSC queues
-- Generates deterministic synthetic workloads for:
-  - balanced mixed flow
-  - cancel-heavy flow
-  - bursty traffic
-- Replays normalized real-world event datasets from CSV when you have order-level market data locally
-
-## Architecture
-
-```mermaid
-flowchart LR
-    A["Synthetic Workload Generator"] --> B["Baseline Book"]
-    A --> C["Optimized Book"]
-    A --> D["Ingress SPSC Queue"]
-    D --> E["Single Matching Thread"]
-    E --> F["Egress SPSC Queue"]
-    F --> G["Benchmark Collector"]
-```
-
-The project keeps matching single-threaded for correctness and determinism, then adds concurrency around the hot path instead of inside it. That gives a clean interview story: we optimize data layout first, then isolate ingestion/output with lock-free queues.
-
-## Data Structure Evolution
+## Implemented Variants
 
 ### 1. Baseline
-- `std::map<price, std::deque<order>>` for bids and asks
-- linear search inside a price level on cancel
-- intentionally simple for a credible "before optimization" benchmark
+
+File:
+- [src/engines/baseline_order_book.cpp](/Users/rishabhsingh/Desktop/low-latency-order-book-sim/src/engines/baseline_order_book.cpp)
+
+Design:
+- `std::map<price, std::deque<order>>` per side
+- per-level quantity recomputed by scanning
+- cancel uses a level scan to find the target order
+
+Purpose:
+- easiest version to reason about
+- correctness reference
+- “before optimization” benchmark
 
 ### 2. Optimized
-- `std::map<price, std::list<order>>` with FIFO order queues per level
-- O(1)-style order lookup by ID using iterators into resting levels
-- reserved hash map capacity to reduce allocator churn on the hot path
+
+File:
+- [src/engines/optimized_order_book.cpp](/Users/rishabhsingh/Desktop/low-latency-order-book-sim/src/engines/optimized_order_book.cpp)
+
+Design changes:
+- direct order lookup by ID using stored iterators
+- cached aggregated quantity per price level
+- pooled allocators via `std::pmr::unsynchronized_pool_resource` to reduce allocator churn for resting-order structures
+
+Purpose:
+- same external behavior as baseline
+- less work per event on the hot path
 
 ### 3. Concurrent Pipeline
-- lock-free SPSC ingress and egress rings
-- one matching thread per book
-- preserves deterministic matching while separating producer, matcher, and consumer responsibilities
 
-## Project Layout
+File:
+- [src/benchmark.cpp](/Users/rishabhsingh/Desktop/low-latency-order-book-sim/src/benchmark.cpp)
 
-- `include/lob/types.hpp`: domain types and result models
-- `include/lob/order_book.hpp`: engine interface, workload generation, and benchmarking API
-- `src/engines/`: baseline and optimized matching engine implementations
-- `src/benchmark.cpp`: benchmark runner and CSV artifact generation
-- `src/replay.cpp`: replay export for the frontend dashboard
-- `tests/test_order_books.cpp`: correctness and determinism tests
-- `scripts/run_benchmarks.sh`: repeatable benchmark entrypoint
-- `frontend/`: static dashboard for replaying order flow and book state
+Design:
+- producer thread -> ingress SPSC queue -> single matcher thread -> egress SPSC queue -> consumer thread
+
+Purpose:
+- keep matching deterministic
+- measure whether transport concurrency helps or just adds queueing
+
+Important:
+- the matcher is still single-threaded
+- this is not a shared-mutation multi-threaded book
+
+## Code Map
+
+Read the repo in this order:
+
+1. [include/lob/types.hpp](/Users/rishabhsingh/Desktop/low-latency-order-book-sim/include/lob/types.hpp)  
+   Core domain types: `OrderEvent`, `Execution`, `TopOfBook`, `BookDepth`, `RunSummary`
+
+2. [include/lob/order_book.hpp](/Users/rishabhsingh/Desktop/low-latency-order-book-sim/include/lob/order_book.hpp)  
+   Shared engine interface and benchmark/replay APIs
+
+3. [src/engines/baseline_order_book.cpp](/Users/rishabhsingh/Desktop/low-latency-order-book-sim/src/engines/baseline_order_book.cpp)  
+   Best place to understand matching logic clearly
+
+4. [src/engines/optimized_order_book.cpp](/Users/rishabhsingh/Desktop/low-latency-order-book-sim/src/engines/optimized_order_book.cpp)  
+   Same logic, lower overhead
+
+5. [src/workload.cpp](/Users/rishabhsingh/Desktop/low-latency-order-book-sim/src/workload.cpp)  
+   Deterministic synthetic traffic generation
+
+6. [src/dataset.cpp](/Users/rishabhsingh/Desktop/low-latency-order-book-sim/src/dataset.cpp)  
+   Real dataset loader
+
+7. [src/benchmark.cpp](/Users/rishabhsingh/Desktop/low-latency-order-book-sim/src/benchmark.cpp)  
+   Throughput/latency measurement
+
+8. [src/replay.cpp](/Users/rishabhsingh/Desktop/low-latency-order-book-sim/src/replay.cpp)  
+   Replay export for the dashboard
+
+9. [src/main.cpp](/Users/rishabhsingh/Desktop/low-latency-order-book-sim/src/main.cpp)  
+   CLI modes and report generation
+
+10. [tests/test_order_books.cpp](/Users/rishabhsingh/Desktop/low-latency-order-book-sim/tests/test_order_books.cpp)  
+    Correctness and determinism checks
+
+## Experimental Setup
+
+### Synthetic workloads
+
+Generated in [src/workload.cpp](/Users/rishabhsingh/Desktop/low-latency-order-book-sim/src/workload.cpp):
+
+- `balanced`
+- `cancel_heavy`
+- `bursty`
+
+### Real dataset
+
+Normalized event CSV loader:
+- [src/dataset.cpp](/Users/rishabhsingh/Desktop/low-latency-order-book-sim/src/dataset.cpp)
+
+LOBSTER normalizer:
+- [scripts/normalize_lobster.py](/Users/rishabhsingh/Desktop/low-latency-order-book-sim/scripts/normalize_lobster.py)
+
+The loader expects order events, not L2 snapshots.
+
+### Metrics
+
+Measured per run:
+
+- throughput in `ops/s`
+- service `p50/p95/p99`
+- end-to-end `p50/p95/p99`
+- queue delay `p50/p95/p99`
+- max queue depth
+- fills and rejects
+
+Definitions:
+
+- `service latency`: time spent inside `process_event(...)`
+- `end-to-end latency`: time from entering the system to leaving it
+- `queue delay`: `end_to_end - service`
+
+For single-thread modes, end-to-end equals service and queue delay is zero.
+
+## Current Results
+
+These are fresh local runs from the current codebase.
+
+### Balanced synthetic workload
+
+Command:
+
+```bash
+./build/lob_simulator --mode benchmark --profile balanced --orders 200000 --seed 42 --output results/balanced.csv
+```
+
+Results:
+
+| Engine | Throughput (ops/s) | Service p50 (ns) | Service p99 (ns) | E2E p99 (ns) | Queue p99 (ns) |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Baseline | 6.69M | 84 | 417 | 417 | 0 |
+| Optimized | 14.84M | 42 | 125 | 125 | 0 |
+| Pipeline | 7.80M | 41 | 125 | 8,281,210 | 8,281,170 |
+
+Interpretation:
+
+- optimized throughput is about `+121.9%` vs baseline
+- optimized service p50 drops about `50%`
+- optimized service p99 drops about `70%`
+- pipeline matcher service time stays low, but the system saturates and queue delay dominates
+
+### Real AAPL LOBSTER replay
+
+Command:
+
+```bash
+./build/lob_simulator --mode benchmark --dataset data/aapl_lobster_normalized.csv --output results/aapl_lobster.csv
+```
+
+Results:
+
+| Engine | Throughput (ops/s) | Service p50 (ns) | Service p99 (ns) | E2E p99 (ns) | Queue p99 (ns) |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Baseline | 9.65M | 83 | 167 | 167 | 0 |
+| Optimized | 16.11M | 42 | 84 | 84 | 0 |
+| Pipeline | 9.86M | 41 | 83 | 2,926,170 | 2,926,120 |
+
+Interpretation:
+
+- optimized throughput is about `+67.0%` vs baseline on real data
+- optimized service p99 improves from `167 ns` to `84 ns`
+- pipeline service p99 is still excellent, but end-to-end latency is much worse because the queue backs up
+
+## Main Finding
+
+For a single book, the best gain came from better single-threaded data structures, not from wrapping the matcher in concurrency.
+
+That is the core result of the project:
+
+- `baseline -> optimized` improved the matcher itself
+- `optimized -> pipeline` preserved matcher speed but hurt system latency under saturation
+
+This is a useful quant/systems conclusion because it matches how real exchange-style engines are often designed: keep one matcher deterministic and fast before adding transport complexity around it.
 
 ## Build
 
-### CMake flow
+### CMake
 
 ```bash
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
@@ -109,6 +234,7 @@ clang++ -std=c++20 -O3 -pthread -Iinclude \
   src/engines/optimized_order_book.cpp \
   src/workload.cpp \
   src/dataset.cpp \
+  src/replay.cpp \
   src/benchmark.cpp \
   src/main.cpp \
   -o build/lob_simulator
@@ -118,65 +244,32 @@ clang++ -std=c++20 -O2 -pthread -Iinclude \
   src/engines/optimized_order_book.cpp \
   src/workload.cpp \
   src/dataset.cpp \
+  src/replay.cpp \
   src/benchmark.cpp \
   tests/test_order_books.cpp \
   -o build/lob_tests
 ```
 
-## Usage
+## Repro Commands
 
-### Run tests
+### Tests
 
 ```bash
 ./build/lob_tests
 ```
 
-### Benchmark one workload
+### Synthetic benchmark
 
 ```bash
 ./build/lob_simulator \
   --mode benchmark \
   --profile balanced \
-  --orders 100000 \
+  --orders 200000 \
   --seed 42 \
   --output results/balanced.csv
 ```
 
-### Simulate and inspect order flow
-
-```bash
-./build/lob_simulator --mode simulate --profile balanced --orders 1000 --seed 42
-```
-
-### Replay a real dataset from CSV
-
-```bash
-./build/lob_simulator \
-  --mode simulate \
-  --dataset data/btc_usd_events.csv \
-  --dataset-limit 50000
-```
-
-### Benchmark a real dataset
-
-```bash
-./build/lob_simulator \
-  --mode benchmark \
-  --dataset data/btc_usd_events.csv \
-  --dataset-limit 50000 \
-  --output results/btc_usd.csv
-```
-
-### Normalize a LOBSTER message file
-
-```bash
-python3 scripts/normalize_lobster.py \
-  --input data/AAPL_2012-06-21_34200000_57600000_message_10.csv \
-  --output data/aapl_lobster_normalized.csv \
-  --limit 50000
-```
-
-Then run the simulator against the normalized file:
+### Real-data benchmark
 
 ```bash
 ./build/lob_simulator \
@@ -185,44 +278,53 @@ Then run the simulator against the normalized file:
   --output results/aapl_lobster.csv
 ```
 
-### Run the full benchmark sweep
+### Replay/dashboard export
 
 ```bash
-bash scripts/run_benchmarks.sh
+./build/lob_simulator \
+  --mode export-dashboard \
+  --dataset data/aapl_lobster_normalized.csv \
+  --output results/aapl_lobster.csv
 ```
 
-### Launch the frontend dashboard
-
-First generate dashboard data:
-
-```bash
-./build/lob_simulator --mode export-dashboard --profile balanced --orders 100000 --seed 42 --output results/balanced.csv
-./build/lob_simulator --mode export-dashboard --profile cancel_heavy --orders 100000 --seed 42 --output results/cancel_heavy.csv
-./build/lob_simulator --mode export-dashboard --profile bursty --orders 100000 --seed 42 --output results/bursty.csv
-```
-
-Then serve the repo root and open the dashboard:
+### Frontend
 
 ```bash
 bash scripts/serve_frontend.sh
 ```
 
-Visit [http://localhost:8000/frontend/index.html](http://localhost:8000/frontend/index.html)
+Open [http://localhost:8000/frontend/index.html](http://localhost:8000/frontend/index.html)
 
-## Dataset Format
+## Profiling Workflow
 
-The real-data path expects a normalized CSV with one order event per row. Required columns:
+Profile helper:
+- [scripts/profile_engine.sh](/Users/rishabhsingh/Desktop/low-latency-order-book-sim/scripts/profile_engine.sh)
 
-- `type`: `limit`, `market`, or `cancel`
-- `side`: `buy` or `sell`
-- `order_id`: stable order identifier
+Flame graph converter:
+- [scripts/sample_to_flamegraph.py](/Users/rishabhsingh/Desktop/low-latency-order-book-sim/scripts/sample_to_flamegraph.py)
 
-Optional columns:
+Run:
 
-- `timestamp`: integer event timestamp
-- `sequence`: integer sequence number
-- `price`: integer price in ticks
-- `qty`: integer quantity
+```bash
+./scripts/profile_engine.sh balanced 2000000 balanced
+```
+
+Behavior:
+
+- on Linux with `perf`, it writes `perf` artifacts
+- on macOS, it falls back to `sample` and generates a flamegraph-style SVG
+
+Current checked-in profiling artifacts:
+
+- [results/balanced_perf.txt](/Users/rishabhsingh/Desktop/low-latency-order-book-sim/results/balanced_perf.txt)
+- [results/balanced_flamegraph.svg](/Users/rishabhsingh/Desktop/low-latency-order-book-sim/results/balanced_flamegraph.svg)
+
+## Dataset Schema
+
+Expected normalized CSV columns:
+
+- required: `type`, `side`, `order_id`
+- optional: `timestamp`, `sequence`, `price`, `qty`
 
 Example:
 
@@ -234,133 +336,26 @@ timestamp,sequence,type,side,order_id,price,qty
 1710000004,4,cancel,sell,10002,0,0
 ```
 
-Notes:
+## Limitations
 
-- This loader is for order-event datasets, not top-of-book snapshots.
-- If your source is exchange-specific, normalize it into this schema first.
-- L2 snapshot/depth feeds do not contain enough information to replay strict price-time matching by themselves.
-- `scripts/normalize_lobster.py` converts LOBSTER message files into this format.
-- The normalizer keeps event types `1` add, `2` partial cancel, `3` delete, and `4` visible execution.
-- It currently skips hidden executions (`5`) and unsupported rows like halts/cross trades, and it prints those counts so you know how much was dropped.
+- only one book is modeled at a time
+- hidden liquidity and advanced exchange order types are not implemented
+- pipeline results are intentionally about queueing around one matcher, not full exchange-scale parallelism
+- the checked-in profiling artifacts on this machine use macOS `sample`, not Linux `perf`
 
-## Benchmark Methodology
+## Why This Is A Good Quant Project
 
-- Fixed-seed synthetic workloads for reproducibility
-- 100,000 events per profile in the current checked-in comparison
-- Metrics:
-  - throughput in orders/sec
-  - p50/p95/p99 service time
-  - p50/p95/p99 end-to-end latency
-  - p50/p95/p99 queue delay
-  - max queue depth for the concurrent pipeline
-- Latency semantics:
-  - **service time** = only time spent inside the matcher
-  - **end-to-end latency** = total time from entering the system to leaving it
-  - **queue delay** = end-to-end latency minus service time
-  - for single-thread engines, end-to-end latency is the same as service time and queue delay is zero
-- Dashboard semantics:
-  - the browser replays exported JSON from the baseline and optimized engines step by step
-  - the pipeline appears in the benchmark cards because it shares matching behavior with the optimized engine but has different transport/queueing latency
+The strongest signal here is not the frontend. It is the backend evidence:
 
-## Measured Results
+- deterministic exchange-style matching
+- controlled baseline vs optimized comparison
+- real-data replay path
+- latency decomposition into service vs end-to-end vs queue delay
+- profiling workflow with saved artifacts
 
-All results below were generated from the current repo implementation with:
+That gives you a concrete interview story:
 
-```bash
-./build/lob_simulator --mode benchmark --profile <profile> --orders 100000 --seed 42 --output results/<profile>.csv
-```
-
-### Balanced workload
-
-| Engine | Throughput (ops/s) | Service p50 (ns) | E2E p50 (ns) | Queue p50 (ns) | Max queue depth |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| Baseline | 6.39M | 125 | 125 | 0 | 0 |
-| Optimized | 9.82M | 42 | 42 | 0 | 0 |
-| Concurrent pipeline | see generated CSV | comparable to optimized service time | higher when queue backs up | visible directly | workload-dependent |
-
-### Cancel-heavy workload
-
-| Engine | Throughput (ops/s) | Service p50 (ns) | E2E p50 (ns) | Queue p50 (ns) | Max queue depth |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| Baseline | 9.61M | 83 | 83 | 0 | 0 |
-| Optimized | 13.55M | 42 | 42 | 0 | 0 |
-| Concurrent pipeline | see generated CSV | comparable to optimized service time | higher when queue backs up | visible directly | workload-dependent |
-
-### Bursty workload
-
-| Engine | Throughput (ops/s) | Service p50 (ns) | E2E p50 (ns) | Queue p50 (ns) | Max queue depth |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| Baseline | 8.36M | 83 | 83 | 0 | 0 |
-| Optimized | 11.53M | 42 | 42 | 0 | 0 |
-| Concurrent pipeline | see generated CSV | comparable to optimized service time | higher when queue backs up | visible directly | workload-dependent |
-
-## What Improved And Why
-
-- The optimized single-thread book is consistently faster than baseline because cancels no longer scan a full price level and hot-path data is more compact.
-- The optimized engine should show lower **service time** than baseline because the matcher itself is doing less work on cancels and book updates.
-- The pipeline lets us separate **matcher work** from **waiting time**. If pipeline service time stays close to optimized single-thread service time, the matcher is healthy.
-- If pipeline end-to-end latency grows far above service time, that does **not** mean matching got slower. It means queueing delay grew because orders were waiting to be processed.
-
-That distinction is the whole point of the updated benchmark. It turns "concurrency looks slow" into a clearer statement:
-
-- the matching core may still be fast
-- the pipeline may still preserve throughput
-- but the system is saturating, so queueing dominates end-to-end latency
-
-## Profiling Workflow
-
-On Linux, use `perf` on the release binary:
-
-```bash
-perf stat ./build/lob_simulator --mode benchmark --profile balanced --orders 500000 --output results/perf_balanced.csv
-perf record -g ./build/lob_simulator --mode benchmark --profile bursty --orders 500000 --output results/perf_bursty.csv
-perf report
-```
-
-If Brendan Gregg's FlameGraph tools are installed:
-
-```bash
-perf script > perf.out
-stackcollapse-perf.pl perf.out > perf.folded
-flamegraph.pl perf.folded > flamegraph.svg
-```
-
-## Test Coverage
-
-- price-time priority across same-price resting orders
-- partial fill and full fill behavior
-- market order execution against resting liquidity
-- cancel success and missing-order rejection
-- top-of-book updates after fills and cancels
-- deterministic end state comparison between direct optimized processing and concurrent pipeline processing
-
-## Glossary
-
-- **Aggressive order**: the incoming order that tries to trade immediately against resting liquidity.
-- **Allocator churn**: overhead from frequent memory allocation/deallocation on the hot path.
-- **Book state**: the current bids, asks, and quantities after processing a sequence of events.
-- **Burst traffic**: a workload where many events arrive in a short interval instead of evenly spaced.
-- **Cache-aware**: designed to reduce slow memory access and make CPU caches more effective.
-- **Deterministic**: same input sequence, same output sequence every run.
-- **Egress**: the path out of a system after processing is complete.
-- **Hot path**: the part of the code executed most often and most performance-sensitive.
-- **Ingress**: the path into a system before processing begins.
-- **Latency percentile**: a summary of how slow the tail is; for example, p99 means 99% of operations are faster than that value.
-- **Lock-free**: uses atomic coordination instead of mutex locking for progress between threads.
-- **Matching engine**: the component that processes orders and decides whether they trade or rest.
-- **Microstructure**: the detailed mechanics of how markets accept, prioritize, and match orders.
-- **Order ID lookup**: direct access to a resting order by its identifier, useful for cancels.
-- **Queue depth**: how many items are waiting in a queue.
-- **Replay**: running a saved event sequence through the engine again for inspection or measurement.
-- **Saturation**: the point where arrival rate exceeds processing capacity and queues start growing.
-- **Synthetic workload**: generated test data rather than live or historical market data.
-- **Throughput**: number of events processed per second.
-
-## Next Extensions
-
-- multi-symbol sharding across books
-- market data replay from historical feeds
-- object pool / arena-backed order allocation
-- richer latency reporting split into service time vs queueing time
-- Linux-native profiling screenshots and flame graphs checked into `docs/`
-- WebSocket-backed live streaming from the C++ engine instead of offline replay JSON
+1. build the correct matcher
+2. profile and optimize the matcher
+3. measure what concurrency really does
+4. validate the same engine on real event data

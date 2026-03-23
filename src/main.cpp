@@ -82,7 +82,7 @@ void write_comparison_report(const std::filesystem::path& output_path, const std
   out << "- Orders: " << baseline.order_count << "\n\n";
 
   out << "## Clear Optimizations\n\n";
-  out << "1. Baseline -> optimized matcher: direct cancel lookup plus cached per-level quantity.\n";
+  out << "1. Baseline -> optimized matcher: direct cancel lookup, cached per-level quantity, and pooled allocators for resting-order storage.\n";
   out << "2. Optimized matcher -> pipeline: batched queue draining to reduce handoff overhead.\n\n";
 
   out << "## Measured Deltas\n\n";

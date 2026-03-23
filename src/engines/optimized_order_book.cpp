@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <list>
 #include <map>
+#include <memory_resource>
 #include <unordered_map>
 #include <utility>
 
@@ -17,24 +18,33 @@ struct OrderNode {
 };
 
 struct LevelData {
-  std::list<OrderNode> orders{};
+  std::pmr::list<OrderNode> orders;
   Qty total_qty{};
+
+  explicit LevelData(std::pmr::memory_resource* memory_resource = std::pmr::get_default_resource())
+      : orders(memory_resource) {}
 };
 
 template <typename Comparator>
-using LevelMap = std::map<Price, LevelData, Comparator>;
+using LevelMap = std::pmr::map<Price, LevelData, Comparator>;
 
 struct OrderHandle {
   Side side{Side::Buy};
   Price price{};
   LevelMap<std::greater<Price>>::iterator bid_level{};
   LevelMap<std::less<Price>>::iterator ask_level{};
+  // Direct iterator access is the key baseline -> optimized improvement for cancels.
   std::list<OrderNode>::iterator order_it{};
 };
 
 class OptimizedOrderBook final : public IOrderBook {
  public:
-  explicit OptimizedOrderBook(std::size_t expected_orders) {
+  explicit OptimizedOrderBook(std::size_t expected_orders)
+      : order_pool_(),
+        bids_(&order_pool_),
+        asks_(&order_pool_),
+        order_index_(&order_pool_) {
+    // Reserve once so the hot path is less likely to rehash under load.
     order_index_.reserve(expected_orders);
   }
 
@@ -63,6 +73,7 @@ class OptimizedOrderBook final : public IOrderBook {
     if (!bids_.empty()) {
       const auto& [price, level] = *bids_.begin();
       snapshot.best_bid = price;
+      // Unlike the baseline, aggregated quantity is cached on every update.
       snapshot.best_bid_qty = level.total_qty;
     }
     if (!asks_.empty()) {
@@ -127,6 +138,8 @@ class OptimizedOrderBook final : public IOrderBook {
     }
 
     auto& handle = it->second;
+    // The order handle points straight at the resting node, so cancel avoids
+    // the baseline's per-level scan.
     const Qty cancelled_qty = event.qty == 0 ? handle.order_it->qty : std::min(event.qty, handle.order_it->qty);
     const Qty remaining_qty = handle.order_it->qty - cancelled_qty;
     if (handle.side == Side::Buy) {
@@ -171,7 +184,9 @@ class OptimizedOrderBook final : public IOrderBook {
     };
 
     if (event.side == Side::Buy) {
-      auto [level_it, inserted] = bids_.try_emplace(event.price);
+      // PMR containers route node allocations through the pool resource, which
+      // reduces small-allocation overhead for resting order state.
+      auto [level_it, inserted] = bids_.try_emplace(event.price, &order_pool_);
       (void)inserted;
       level_it->second.orders.push_back(order);
       level_it->second.total_qty += remaining;
@@ -184,7 +199,7 @@ class OptimizedOrderBook final : public IOrderBook {
           .order_it = order_it,
       };
     } else {
-      auto [level_it, inserted] = asks_.try_emplace(event.price);
+      auto [level_it, inserted] = asks_.try_emplace(event.price, &order_pool_);
       (void)inserted;
       level_it->second.orders.push_back(order);
       level_it->second.total_qty += remaining;
@@ -200,6 +215,8 @@ class OptimizedOrderBook final : public IOrderBook {
   }
 
   void match_order(const OrderEvent& event, Qty& remaining, std::vector<Execution>& executions, bool is_market) {
+    // Matching policy is identical to baseline. The speedup here comes from the
+    // supporting structures around the loop, not from changing market behavior.
     auto crosses = [&](Price best_price) {
       if (is_market) {
         return true;
@@ -215,6 +232,8 @@ class OptimizedOrderBook final : public IOrderBook {
         auto level_it = asks_.begin();
         auto& level = level_it->second;
         auto& orders = level.orders;
+        // Price priority is handled by the map ordering; time priority is the
+        // FIFO walk through the per-level order list.
         while (remaining > 0 && !orders.empty()) {
           auto order_it = orders.begin();
           const Qty trade_qty = std::min(remaining, order_it->qty);
@@ -236,6 +255,8 @@ class OptimizedOrderBook final : public IOrderBook {
         auto level_it = bids_.begin();
         auto& level = level_it->second;
         auto& orders = level.orders;
+        // Price priority is handled by the map ordering; time priority is the
+        // FIFO walk through the per-level order list.
         while (remaining > 0 && !orders.empty()) {
           auto order_it = orders.begin();
           const Qty trade_qty = std::min(remaining, order_it->qty);
@@ -286,9 +307,10 @@ class OptimizedOrderBook final : public IOrderBook {
     };
   }
 
+  std::pmr::unsynchronized_pool_resource order_pool_;
   LevelMap<std::greater<Price>> bids_;
   LevelMap<std::less<Price>> asks_;
-  std::unordered_map<OrderId, OrderHandle> order_index_;
+  std::pmr::unordered_map<OrderId, OrderHandle> order_index_;
 };
 
 }  // namespace

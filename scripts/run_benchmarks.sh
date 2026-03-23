@@ -17,5 +17,5 @@ for profile in balanced cancel_heavy bursty; do
 done
 
 echo "Benchmark and replay artifacts written to ${ROOT_DIR}/results"
-echo "Example perf command:"
-echo "perf stat ${BUILD_DIR}/lob_simulator --mode benchmark --profile balanced --orders 500000 --output ${ROOT_DIR}/results/perf_balanced.csv"
+echo "Profile helper:"
+echo "${ROOT_DIR}/scripts/profile_engine.sh balanced 2000000 balanced"

@@ -13,13 +13,24 @@
           <p class="eyebrow">Low-Latency Order Book Simulator</p>
           <h1>LOB Terminal</h1>
         </div>
-        <button id="reload-button" class="accent-button">Reload</button>
+        <div class="topbar-controls">
+          <label class="field topbar-field">
+            <span>Dataset</span>
+            <select id="dataset-select">
+              <option value="aapl_lobster" selected>AAPL LOBSTER</option>
+              <option value="balanced">Balanced</option>
+              <option value="cancel_heavy">Cancel Heavy</option>
+              <option value="bursty">Bursty</option>
+            </select>
+          </label>
+          <button id="reload-button" class="accent-button">Reload</button>
+        </div>
       </header>
 
       <nav class="tabbar">
         <button class="tab-button active" data-tab="simulator">Simulator</button>
-        <button class="tab-button" data-tab="comparison">Comparison</button>
         <button class="tab-button" data-tab="analysis">Analysis</button>
+        <button class="tab-button" data-tab="report">Report</button>
       </nav>
 
       <section id="tab-simulator" class="tab-panel active">
@@ -31,15 +42,6 @@
                 <span id="status-banner" class="status-text">Waiting for data...</span>
               </div>
               <div class="selector-stack">
-                <div class="selector-block">
-                  <span class="selector-label">Dataset</span>
-                  <div class="segmented-control" id="dataset-control">
-                    <button class="segment-button active" data-dataset="aapl_lobster">AAPL</button>
-                    <button class="segment-button" data-dataset="balanced">Balanced</button>
-                    <button class="segment-button" data-dataset="cancel_heavy">Cancel</button>
-                    <button class="segment-button" data-dataset="bursty">Bursty</button>
-                  </div>
-                </div>
                 <div class="selector-block">
                   <span class="selector-label">Mode</span>
                   <div class="segmented-control" id="engine-control">
@@ -179,18 +181,18 @@
         </section>
       </section>
 
-      <section id="tab-comparison" class="tab-panel">
-        <div id="comparison-panel" class="comparison-panel">
-          <article class="engine-card">
-            <h2>Loading comparison...</h2>
-          </article>
-        </div>
-      </section>
-
       <section id="tab-analysis" class="tab-panel">
         <div id="analysis-panel" class="analysis-panel">
           <article class="analysis-card">
             <h2>Loading analysis...</h2>
+          </article>
+        </div>
+      </section>
+
+      <section id="tab-report" class="tab-panel">
+        <div id="report-panel" class="report-panel">
+          <article class="report-card">
+            <h2>Loading report...</h2>
           </article>
         </div>
       </section>

@@ -1,5 +1,5 @@
 const reloadButton = document.getElementById("reload-button");
-const datasetButtons = [...document.querySelectorAll("[data-dataset]")];
+const datasetSelect = document.getElementById("dataset-select");
 const engineButtons = [...document.querySelectorAll("[data-engine]")];
 const playButton = document.getElementById("play-button");
 const pauseButton = document.getElementById("pause-button");
@@ -35,8 +35,8 @@ const egressQueue = document.getElementById("egress-queue");
 const matcherActive = document.getElementById("matcher-active");
 const orderTape = document.getElementById("order-tape");
 const fillsList = document.getElementById("fills-list");
-const comparisonPanel = document.getElementById("comparison-panel");
 const analysisPanel = document.getElementById("analysis-panel");
+const reportPanel = document.getElementById("report-panel");
 
 const datasetSources = {
   balanced: {
@@ -73,10 +73,11 @@ const state = {
     flamegraphPath: null,
     perfPath: null,
   },
+  reportMarkdown: "",
   currentIndex: 0,
   timerId: null,
   stepsPerSecond: Number(speedRange.value),
-  selectedDataset: datasetButtons.find((button) => button.classList.contains("active"))?.dataset.dataset ?? "aapl_lobster",
+  selectedDataset: datasetSelect?.value ?? "aapl_lobster",
   selectedReplay: engineButtons.find((button) => button.classList.contains("active"))?.dataset.engine ?? "optimized",
 };
 
@@ -93,6 +94,13 @@ function formatNumber(value, digits = 0) {
 
 function safeText(value) {
   return value === undefined || value === null || value === "" ? "-" : String(value);
+}
+
+function escapeHtml(value) {
+  return String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;");
 }
 
 function parseCsvLine(line) {
@@ -132,9 +140,6 @@ function engineTitle(engine) {
   if (engine === "optimized_single_thread") {
     return "Optimized Engine";
   }
-  if (engine.startsWith("optimized_sharded_")) {
-    return "Sharded Engine";
-  }
   return "Concurrent Pipeline";
 }
 
@@ -147,9 +152,6 @@ function engineNarrative(summary) {
   }
   if (summary.engine === "optimized_single_thread") {
     return "Same matching behavior, less matcher work. Direct lookup removes cancel scans and improves service time.";
-  }
-  if (summary.engine.startsWith("optimized_sharded_")) {
-    return "Production-style scaling path. Each shard keeps a single-threaded matcher and parallelizes across symbols instead of inside one book.";
   }
   return "Same single matcher, but with queues around it. The useful comparison is service time versus queue-driven end-to-end delay.";
 }
@@ -268,27 +270,6 @@ function renderArchitectureCard(summary) {
       </div>
     `;
     copy = "The matcher itself stays fast, but work can pile up in the handoff queues. Good service time can still hide bad end-to-end latency.";
-  } else if (summary.engine.startsWith("optimized_sharded_")) {
-    stages = `
-      <div class="flow-shards">
-        <div class="flow-shard">
-          <span>Shard A</span>
-          <div class="flow-mini"></div>
-          <strong>Book A</strong>
-        </div>
-        <div class="flow-shard">
-          <span>Shard B</span>
-          <div class="flow-mini"></div>
-          <strong>Book B</strong>
-        </div>
-        <div class="flow-shard">
-          <span>Shard C</span>
-          <div class="flow-mini"></div>
-          <strong>Book C</strong>
-        </div>
-      </div>
-    `;
-    copy = "Parallelism comes from splitting symbols across independent books, not by having many threads mutate one book.";
   }
 
   return `
@@ -297,6 +278,7 @@ function renderArchitectureCard(summary) {
         <h3>${engineTitle(summary.engine)}</h3>
         <span class="ghost-pill">${formatNumber(summary.throughput_ops_per_sec)} ops/s</span>
       </div>
+      <p class="system-kicker">Path of work</p>
       ${stages}
       <p class="engine-copy">${copy}</p>
       ${renderMiniBars(summary, [
@@ -308,102 +290,105 @@ function renderArchitectureCard(summary) {
   `;
 }
 
-function renderEngineCard(summary, extraCopy) {
-  const highlightRows = engineHighlights(summary);
-  const rowsHtml = highlightRows
-    .map(([label, value]) => `<div class="metric-row"><span>${label}</span><span>${value}</span></div>`)
-    .join("");
-  return `
-    <article class="engine-card">
-      <div class="engine-hero">
-        <div>
-          <p class="eyebrow">${activeDatasetLabel()} run</p>
-          <h2>${engineTitle(summary.engine)}</h2>
-          <p class="engine-copy">${engineNarrative(summary)}</p>
-        </div>
-        <div class="engine-chip">${safeText(summary.engine)}</div>
-      </div>
-      <div class="engine-layout">
-        <section class="engine-metrics">
-          <h3>Measured Results</h3>
-          ${rowsHtml}
-        </section>
-        <section class="engine-explanation">
-          <h3>How To Read It</h3>
-          <p>${extraCopy}</p>
-        </section>
-      </div>
-    </article>
-  `;
-}
-
 function renderMetrics() {
   const baseline = state.metrics.find((metric) => metric.engine === "baseline_single_thread");
   const optimized = state.metrics.find((metric) => metric.engine === "optimized_single_thread");
   const pipeline = state.metrics.find((metric) => metric.engine === "optimized_concurrent_pipeline");
-  const sharded = state.metrics.find((metric) => typeof metric.engine === "string" && metric.engine.startsWith("optimized_sharded_"));
-  const summaryList = [baseline, optimized, pipeline, sharded];
-
-  const sections = [];
-  if (baseline) {
-    sections.push(
-      renderEngineCard(
-          baseline,
-          "Treat this as the simplest correct reference. Improvements elsewhere should come from less work per event, not different behavior.")
-    );
-  }
-  if (optimized) {
-    sections.push(
-      renderEngineCard(
-          optimized,
-          "Compare this directly to the baseline on service time and throughput. This is the cleanest test of whether the matcher itself improved.")
-    );
-  }
-  if (pipeline) {
-    sections.push(
-      renderEngineCard(
-          pipeline,
-          "Compare service time to end-to-end time. If those diverge sharply, the queue is growing faster than the matcher can drain it.")
-    );
-  }
-  if (sharded) {
-    sections.push(
-      renderEngineCard(
-          sharded,
-          "Use this when the input has multiple symbols. The gain comes from parallel books, not from mutating one book with many threads.")
-    );
-  }
-
-  if (comparisonPanel) {
-    comparisonPanel.innerHTML = sections.length
-      ? `
-        <div class="comparison-shell">
-          <div class="system-map">
-            ${summaryList.filter(Boolean).map((summary) => renderArchitectureCard(summary)).join("")}
-          </div>
-          <article class="analysis-card">
-            <div class="panel-header">
-              <h2>Comparison</h2>
-              <span class="ghost-pill">${activeDatasetLabel()}</span>
-            </div>
-            ${renderComparisonChart(summaryList, "throughput_ops_per_sec", "Throughput", " ops/s")}
-            ${renderComparisonChart(summaryList, "service_p99_ns", "Service p99", " ns")}
-            ${renderComparisonChart(summaryList, "end_to_end_p99_ns", "End-to-End p99", " ns")}
-          </article>
-          <div class="comparison-grid">${sections.join("")}</div>
-        </div>
-      `
-      : `
-        <article class="engine-card">
-          <h2>No comparison data</h2>
-          <p class="engine-copy">This dataset did not produce any benchmark rows. Try reloading or regenerating the results file.</p>
-        </article>
-      `;
-  }
-
   if (analysisPanel) {
-    renderAnalysisPanel({ baseline, optimized, pipeline, sharded });
+    renderAnalysisPanel({ baseline, optimized, pipeline });
   }
+}
+
+function markdownToHtml(markdown) {
+  const lines = markdown.split("\n");
+  let html = "";
+  let inList = false;
+
+  for (const rawLine of lines) {
+    const line = rawLine.trimEnd();
+    const trimmed = line.trim();
+
+    if (!trimmed) {
+      if (inList) {
+        html += "</ul>";
+        inList = false;
+      }
+      continue;
+    }
+
+    if (trimmed.startsWith("### ")) {
+      if (inList) {
+        html += "</ul>";
+        inList = false;
+      }
+      html += `<h3>${escapeHtml(trimmed.slice(4))}</h3>`;
+      continue;
+    }
+
+    if (trimmed.startsWith("## ")) {
+      if (inList) {
+        html += "</ul>";
+        inList = false;
+      }
+      html += `<h2>${escapeHtml(trimmed.slice(3))}</h2>`;
+      continue;
+    }
+
+    if (trimmed.startsWith("# ")) {
+      if (inList) {
+        html += "</ul>";
+        inList = false;
+      }
+      html += `<h1>${escapeHtml(trimmed.slice(2))}</h1>`;
+      continue;
+    }
+
+    if (trimmed.startsWith("- ")) {
+      if (!inList) {
+        html += "<ul>";
+        inList = true;
+      }
+      html += `<li>${escapeHtml(trimmed.slice(2))}</li>`;
+      continue;
+    }
+
+    if (inList) {
+      html += "</ul>";
+      inList = false;
+    }
+    html += `<p>${escapeHtml(trimmed)}</p>`;
+  }
+
+  if (inList) {
+    html += "</ul>";
+  }
+
+  return html;
+}
+
+function renderReportPanel() {
+  if (!reportPanel) {
+    return;
+  }
+
+  reportPanel.innerHTML = state.reportMarkdown
+    ? `
+      <article class="report-card">
+        <div class="panel-header">
+          <h2>Research Report</h2>
+          <span class="ghost-pill">${activeDatasetLabel()}</span>
+        </div>
+        <div class="report-prose">
+          ${markdownToHtml(state.reportMarkdown)}
+        </div>
+      </article>
+    `
+    : `
+      <article class="report-card">
+        <h2>Report unavailable</h2>
+        <p class="engine-copy">The frontend report markdown could not be loaded.</p>
+      </article>
+    `;
 }
 
 function metricValue(summary, key, suffix) {
@@ -431,14 +416,22 @@ function renderDeltaChip(delta, betterWhenLower = false) {
   return `<span class="delta-chip ${isGood ? "good" : "bad"}">${direction}${delta.toFixed(1)}%</span>`;
 }
 
-function renderAnalysisPanel({ baseline, optimized, pipeline, sharded }) {
+function renderMetricMatrix(summary) {
+  if (!summary) {
+    return "";
+  }
+  return engineHighlights(summary)
+    .map(([label, value]) => `<div class="matrix-row"><span>${label}</span><strong>${value}</strong></div>`)
+    .join("");
+}
+
+function renderAnalysisPanel({ baseline, optimized, pipeline }) {
   if (!analysisPanel) {
     return;
   }
-  const hasAnySummary = Boolean(baseline || optimized || pipeline || sharded);
+  const hasAnySummary = Boolean(baseline || optimized || pipeline);
   const optimizationDelta = percentDelta(baseline?.throughput_ops_per_sec, optimized?.throughput_ops_per_sec);
   const queueDelta = percentDelta(optimized?.end_to_end_p99_ns, pipeline?.end_to_end_p99_ns);
-  const shardedDelta = percentDelta(optimized?.throughput_ops_per_sec, sharded?.throughput_ops_per_sec);
   const flamegraphBlock = state.analysis.flamegraphPath
     ? `
       <div class="artifact-frame">
@@ -466,7 +459,6 @@ function renderAnalysisPanel({ baseline, optimized, pipeline, sharded }) {
     ["Baseline", baseline],
     ["Optimized", optimized],
     ["Pipeline", pipeline],
-    ["Sharded", sharded],
   ]
     .filter(([, summary]) => summary)
     .map(
@@ -482,30 +474,43 @@ function renderAnalysisPanel({ baseline, optimized, pipeline, sharded }) {
     .join("");
 
   analysisPanel.innerHTML = hasAnySummary ? `
-    <div class="analysis-grid">
-      <article class="analysis-card">
-        <div class="panel-header">
-          <h2>Analysis</h2>
-          <span class="ghost-pill">${activeDatasetLabel()}</span>
+    <div class="analysis-shell">
+      <section class="analysis-ribbon">
+        <div>
+          <p class="eyebrow">${activeDatasetLabel()} analysis</p>
+          <h2>Engine Findings</h2>
         </div>
-        <div class="analysis-hero">
-          <div class="analysis-stat">
+        <div class="analysis-deltas">
+          <div class="delta-panel">
             <span class="analysis-label">Optimized vs Baseline</span>
             ${renderDeltaChip(optimizationDelta)}
-            <p>Matcher/data-structure improvement.</p>
+            <p>Direct lookup, cached levels, and pooled allocators reduced matcher work.</p>
           </div>
-          <div class="analysis-stat">
-            <span class="analysis-label">Pipeline p99 vs Optimized</span>
+          <div class="delta-panel">
+            <span class="analysis-label">Pipeline E2E vs Optimized</span>
             ${renderDeltaChip(queueDelta)}
-            <p>Queueing impact on tail latency.</p>
-          </div>
-          <div class="analysis-stat">
-            <span class="analysis-label">Sharded vs Optimized</span>
-            ${renderDeltaChip(shardedDelta)}
-            <p>Useful only on multi-symbol input.</p>
+            <p>The matcher stayed fast, but queueing inflated tail latency under burst load.</p>
           </div>
         </div>
-        <div class="comparison-table">
+      </section>
+
+      <section class="analysis-section">
+        <div class="section-head">
+          <h3>Execution Paths</h3>
+          <span class="ghost-pill">Step diagrams</span>
+        </div>
+        <p class="section-copy">Each lane shows where an event travels through the system and where extra overhead gets introduced.</p>
+        <div class="system-map">
+          ${[baseline, optimized, pipeline].filter(Boolean).map((summary) => renderArchitectureCard(summary)).join("")}
+        </div>
+      </section>
+
+      <section class="analysis-section">
+        <div class="section-head">
+          <h3>Benchmark Readout</h3>
+          <span class="ghost-pill">Core metrics</span>
+        </div>
+        <div class="comparison-table analysis-table">
           <div class="comparison-row head">
             <span>Engine</span>
             <span>Throughput</span>
@@ -514,51 +519,83 @@ function renderAnalysisPanel({ baseline, optimized, pipeline, sharded }) {
           </div>
           ${summaryRows}
         </div>
-      </article>
-
-      <article class="analysis-card">
-        <div class="panel-header">
-          <h2>Charts</h2>
-          <span class="ghost-pill">Visuals</span>
-        </div>
         <div class="analysis-charts">
-          ${renderComparisonChart([baseline, optimized, pipeline, sharded], "throughput_ops_per_sec", "Engine Throughput", " ops/s")}
-          ${renderComparisonChart([baseline, optimized, pipeline, sharded], "queue_delay_p99_ns", "Queue Delay p99", " ns")}
+          ${renderComparisonChart([baseline, optimized, pipeline], "throughput_ops_per_sec", "Throughput", " ops/s")}
+          ${renderComparisonChart([baseline, optimized, pipeline], "service_p99_ns", "Service tail", " ns")}
+          ${renderComparisonChart([baseline, optimized, pipeline], "queue_delay_p99_ns", "Queue delay tail", " ns")}
         </div>
-      </article>
+      </section>
 
-      <article class="analysis-card">
-        <div class="panel-header">
-          <h2>Profile + Flame Graph</h2>
-          <span class="ghost-pill">Artifacts</span>
+      <section class="analysis-section analysis-matrix">
+        <div class="section-head">
+          <h3>Per Engine Detail</h3>
+          <span class="ghost-pill">Measured outputs</span>
         </div>
-        <div class="artifact-toolbar">
-          ${perfBlock}
+        <div class="matrix-columns">
+          ${baseline ? `
+            <div class="matrix-column">
+              <div class="matrix-head">
+                <h4>Baseline</h4>
+                <p>${engineNarrative(baseline)}</p>
+              </div>
+              <div class="metric-matrix">${renderMetricMatrix(baseline)}</div>
+            </div>
+          ` : ""}
+          ${optimized ? `
+            <div class="matrix-column">
+              <div class="matrix-head">
+                <h4>Optimized</h4>
+                <p>${engineNarrative(optimized)}</p>
+              </div>
+              <div class="metric-matrix">${renderMetricMatrix(optimized)}</div>
+            </div>
+          ` : ""}
+          ${pipeline ? `
+            <div class="matrix-column">
+              <div class="matrix-head">
+                <h4>Pipeline</h4>
+                <p>${engineNarrative(pipeline)}</p>
+              </div>
+              <div class="metric-matrix">${renderMetricMatrix(pipeline)}</div>
+            </div>
+          ` : ""}
         </div>
-        ${flamegraphBlock}
-      </article>
+      </section>
 
-      <article class="analysis-card">
-        <div class="panel-header">
-          <h2>Interpretation</h2>
-          <span class="ghost-pill">Notes</span>
+      <section class="analysis-section analysis-bottom">
+        <div class="notes-panel">
+          <div class="section-head">
+            <h3>Interpretation</h3>
+            <span class="ghost-pill">What matters</span>
+          </div>
+          <div class="notes-grid">
+            <div class="note-block">
+              <h3>Matcher</h3>
+              <p>${optimized ? "Use the optimized service metrics to judge whether the matcher itself improved." : "Load a run to inspect matcher service time."}</p>
+            </div>
+            <div class="note-block">
+              <h3>Queueing</h3>
+              <p>${pipeline ? "If service time stays low while end-to-end explodes, backlog rather than matching is the system bottleneck." : "Pipeline stats will appear here when that mode is present."}</p>
+            </div>
+            <div class="note-block">
+              <h3>Scope</h3>
+              <p>This project is intentionally about one book. The concurrency question is transport and saturation, not parallel mutation of one matcher.</p>
+            </div>
+          </div>
+          ${reportLines ? `<div class="report-block"><h3>Run Report</h3><ul class="report-list">${reportLines}</ul></div>` : ""}
         </div>
-        <div class="notes-grid">
-          <div class="note-block">
-            <h3>Matcher</h3>
-            <p>${optimized ? "Optimized service metrics tell you whether the matcher itself got faster." : "Load a run to inspect matcher service time."}</p>
+
+        <div class="artifact-panel">
+          <div class="section-head">
+            <h3>Profile + Flame Graph</h3>
+            <span class="ghost-pill">Artifacts</span>
           </div>
-          <div class="note-block">
-            <h3>Queueing</h3>
-            <p>${pipeline ? "If pipeline service stays low while end-to-end spikes, backlog is dominating." : "Pipeline stats will appear here when that mode is present."}</p>
+          <div class="artifact-toolbar">
+            ${perfBlock}
           </div>
-          <div class="note-block">
-            <h3>Scaling</h3>
-            <p>${sharded ? "Sharding scales across books rather than inside one book." : "No sharded metrics detected for this dataset."}</p>
-          </div>
+          ${flamegraphBlock}
         </div>
-        ${reportLines ? `<div class="report-block"><h3>Run Report</h3><ul class="report-list">${reportLines}</ul></div>` : ""}
-      </article>
+      </section>
     </div>
   ` : `
     <article class="analysis-card">
@@ -807,6 +844,34 @@ function renderStep(index) {
   }
 }
 
+async function fetchTextFromPaths(paths) {
+  for (const path of paths) {
+    try {
+      const response = await fetch(path, { cache: "no-store" });
+      if (response.ok) {
+        return response.text();
+      }
+    } catch (error) {
+      // Try the next candidate path.
+    }
+  }
+  throw new Error(`failed to load any of: ${paths.join(", ")}`);
+}
+
+async function fetchJsonFromPaths(paths) {
+  for (const path of paths) {
+    try {
+      const response = await fetch(path, { cache: "no-store" });
+      if (response.ok) {
+        return response.json();
+      }
+    } catch (error) {
+      // Try the next candidate path.
+    }
+  }
+  throw new Error(`failed to load any of: ${paths.join(", ")}`);
+}
+
 function activateTab(tabName) {
   tabButtons.forEach((button) => {
     button.classList.toggle("active", button.dataset.tab === tabName);
@@ -839,12 +904,10 @@ function startPlayback() {
 
 async function fetchCsv(profile) {
   const source = datasetSources[profile] ?? datasetSources.balanced;
-  const response = await fetch(`/results/${source.csv}.csv`, { cache: "no-store" });
-  if (!response.ok) {
-    throw new Error(`failed to load /results/${source.csv}.csv`);
-  }
-
-  const text = await response.text();
+  const text = await fetchTextFromPaths([
+    `/results/${source.csv}.csv`,
+    `./results/${source.csv}.csv`,
+  ]);
   const [headerLine, ...lines] = text.trim().split("\n");
   const headers = parseCsvLine(headerLine);
   return lines.filter(Boolean).map((line) => {
@@ -860,11 +923,10 @@ async function fetchCsv(profile) {
 async function fetchReplay(profile, engine) {
   const source = datasetSources[profile] ?? datasetSources.balanced;
   const replayEngine = engine === "baseline" ? "baseline" : "optimized";
-  const response = await fetch(`/results/replay_${replayEngine}_${source.replay}.json`, { cache: "no-store" });
-  if (!response.ok) {
-    throw new Error(`failed to load /results/replay_${replayEngine}_${source.replay}.json`);
-  }
-  const replay = await response.json();
+  const replay = await fetchJsonFromPaths([
+    `/results/replay_${replayEngine}_${source.replay}.json`,
+    `./results/replay_${replayEngine}_${source.replay}.json`,
+  ]);
   if (engine === "pipeline") {
     replay.engine = "optimized_concurrent_pipeline";
   }
@@ -900,9 +962,6 @@ async function findExistingAsset(paths) {
 async function loadData() {
   stopPlayback();
   statusBanner.textContent = "Loading...";
-  if (comparisonPanel) {
-    comparisonPanel.innerHTML = `<article class="engine-card"><h2>Loading comparison...</h2></article>`;
-  }
   if (analysisPanel) {
     analysisPanel.innerHTML = `<article class="analysis-card"><h2>Loading analysis...</h2></article>`;
   }
@@ -911,24 +970,35 @@ async function loadData() {
     const profile = state.selectedDataset;
     const engine = state.selectedReplay;
     const source = datasetSources[profile] ?? datasetSources.balanced;
-    const [metrics, replay] = await Promise.all([
+    const [metrics, replay, reportFromRoot, reportFromLocal] = await Promise.all([
       fetchCsv(profile),
       fetchReplay(profile, engine),
+      fetchOptionalText("/frontend/report.md"),
+      fetchOptionalText("./report.md"),
     ]);
     const [comparisonMarkdown, flamegraphPath, perfPath] = await Promise.all([
-      fetchOptionalText(`/results/${source.analysis}_comparison.md`),
+      fetchOptionalText(`/results/${source.analysis}_comparison.md`).then((text) => text || fetchOptionalText(`./results/${source.analysis}_comparison.md`)),
       findExistingAsset([
         `/results/${source.analysis}_flamegraph.svg`,
+        `./results/${source.analysis}_flamegraph.svg`,
         `/results/flamegraph_${source.analysis}.svg`,
+        `./results/flamegraph_${source.analysis}.svg`,
         `/results/${source.csv}_flamegraph.svg`,
+        `./results/${source.csv}_flamegraph.svg`,
         `/results/balanced_flamegraph.svg`,
+        `./results/balanced_flamegraph.svg`,
       ]),
       findExistingAsset([
         `/results/${source.analysis}_perf.txt`,
+        `./results/${source.analysis}_perf.txt`,
         `/results/${source.analysis}_perf.md`,
+        `./results/${source.analysis}_perf.md`,
         `/results/perf_${source.analysis}.txt`,
+        `./results/perf_${source.analysis}.txt`,
         `/results/${source.analysis}_sample.txt`,
+        `./results/${source.analysis}_sample.txt`,
         `/results/balanced_perf.txt`,
+        `./results/balanced_perf.txt`,
       ]),
     ]);
 
@@ -939,12 +1009,14 @@ async function loadData() {
       flamegraphPath,
       perfPath,
     };
+    state.reportMarkdown = reportFromRoot || reportFromLocal || "";
     state.currentIndex = 0;
     timeline.max = String(Math.max(0, replay.steps.length - 1));
     timeline.value = "0";
 
     renderMetrics();
     renderStep(0);
+    renderReportPanel();
   } catch (error) {
     statusBanner.textContent = "Missing data";
     eventBadge.textContent = "No replay";
@@ -953,14 +1025,6 @@ async function loadData() {
     orderTape.innerHTML = "";
     fillsList.innerHTML = "";
     bookRows.innerHTML = "";
-    if (comparisonPanel) {
-      comparisonPanel.innerHTML = `
-        <article class="engine-card">
-          <h2>Comparison unavailable</h2>
-          <p class="engine-copy">The benchmark file could not be loaded for this dataset.</p>
-        </article>
-      `;
-    }
     if (analysisPanel) {
       analysisPanel.innerHTML = `
         <article class="analysis-card">
@@ -969,16 +1033,15 @@ async function loadData() {
         </article>
       `;
     }
+    state.reportMarkdown = "";
+    renderReportPanel();
   }
 }
 
 reloadButton.addEventListener("click", loadData);
-datasetButtons.forEach((button) => {
-  button.addEventListener("click", () => {
-    state.selectedDataset = button.dataset.dataset;
-    setActiveButton(datasetButtons, "dataset", state.selectedDataset);
-    loadData();
-  });
+datasetSelect?.addEventListener("change", () => {
+  state.selectedDataset = datasetSelect.value;
+  loadData();
 });
 engineButtons.forEach((button) => {
   button.addEventListener("click", () => {
