@@ -14,6 +14,10 @@ add_library(
   lob_core
   src/engines/baseline_order_book.cpp
   src/engines/optimized_order_book.cpp
+  src/engines/intrusive_order_book.cpp
+  src/feature_extractor.cpp
+  src/inference_engine.cpp
+  src/replay_engine.cpp
   src/workload.cpp
   src/dataset.cpp
   src/benchmark.cpp

@@ -21,6 +21,7 @@ class IOrderBook {
 
 std::unique_ptr<IOrderBook> make_baseline_order_book();
 std::unique_ptr<IOrderBook> make_optimized_order_book(std::size_t expected_orders = 1U << 20);
+std::unique_ptr<IOrderBook> make_intrusive_order_book(std::size_t expected_orders = 1U << 20);
 
 std::vector<OrderEvent> generate_workload(WorkloadProfile profile, std::size_t order_count, std::uint64_t seed);
 std::vector<OrderEvent> load_events_from_csv(const std::string& csv_path, std::size_t limit = 0);

@@ -13,6 +13,10 @@ if [[ ! -x "${SIM_BIN}" ]]; then
   c++ -std=c++20 -O3 -pthread -I"${ROOT_DIR}/include" \
     "${ROOT_DIR}/src/engines/baseline_order_book.cpp" \
     "${ROOT_DIR}/src/engines/optimized_order_book.cpp" \
+    "${ROOT_DIR}/src/engines/intrusive_order_book.cpp" \
+    "${ROOT_DIR}/src/feature_extractor.cpp" \
+    "${ROOT_DIR}/src/inference_engine.cpp" \
+    "${ROOT_DIR}/src/replay_engine.cpp" \
     "${ROOT_DIR}/src/workload.cpp" \
     "${ROOT_DIR}/src/dataset.cpp" \
     "${ROOT_DIR}/src/replay.cpp" \
@@ -29,9 +33,24 @@ mkdir -p "${FRONTEND_RESULTS_DIR}"
 
 if [[ -f "${ROOT_DIR}/data/aapl_lobster_normalized.csv" ]]; then
   "${SIM_BIN}" --mode export-dashboard --dataset "${ROOT_DIR}/data/aapl_lobster_normalized.csv" --output "${ROOT_DIR}/results/aapl_lobster.csv"
+  "${SIM_BIN}" --mode export-features --dataset "${ROOT_DIR}/data/aapl_lobster_normalized.csv" --depth 3 --label-mode thresholded_horizon --horizon-events 25 --move-threshold 100 --output "${ROOT_DIR}/results/aapl_features_best.csv"
+
+  if [[ -x "${ROOT_DIR}/.conda-xgb/bin/python" ]]; then
+    "${ROOT_DIR}/.conda-xgb/bin/python" "${ROOT_DIR}/scripts/run_standard_inference_pipeline.py" \
+      --input "${ROOT_DIR}/results/aapl_features_best.csv" \
+      --json-output "${ROOT_DIR}/results/aapl_eval_binary.json" \
+      --linear-output "${ROOT_DIR}/results/aapl_standard_linear_model.csv" \
+      --xgb-output "${ROOT_DIR}/results/aapl_standard_xgboost.json"
+  fi
+  if [[ -f "${ROOT_DIR}/results/aapl_standard_linear_model.csv" ]]; then
+    "${SIM_BIN}" --mode benchmark-stages --dataset "${ROOT_DIR}/data/aapl_lobster_normalized.csv" --depth 3 --linear-model "${ROOT_DIR}/results/aapl_standard_linear_model.csv" --output "${ROOT_DIR}/results/aapl_stage_bench_binary.csv"
+  else
+    "${SIM_BIN}" --mode benchmark-stages --dataset "${ROOT_DIR}/data/aapl_lobster_normalized.csv" --depth 3 --output "${ROOT_DIR}/results/aapl_stage_bench_binary.csv"
+  fi
 fi
 
 cp "${ROOT_DIR}"/results/*.csv "${FRONTEND_RESULTS_DIR}"/ 2>/dev/null || true
+cp "${ROOT_DIR}"/results/*.json "${FRONTEND_RESULTS_DIR}"/ 2>/dev/null || true
 cp "${ROOT_DIR}"/results/replay_*.json "${FRONTEND_RESULTS_DIR}"/ 2>/dev/null || true
 cp "${ROOT_DIR}"/results/*_comparison.md "${FRONTEND_RESULTS_DIR}"/ 2>/dev/null || true
 cp "${ROOT_DIR}"/results/*_flamegraph.svg "${FRONTEND_RESULTS_DIR}"/ 2>/dev/null || true

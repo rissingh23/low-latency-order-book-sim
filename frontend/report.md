@@ -2,23 +2,42 @@
 
 ## Question
 
-How much faster can a single price-time-priority order book get from better data structures, and what happens when we wrap that same matcher in a concurrent pipeline?
+Can a deterministic single-book order book engine replay real historical events, extract useful limit-order-book features, and integrate lightweight prediction without losing its low-latency systems story?
 
-## Setup
+## Project Scope
 
-This project implements one deterministic limit order book with:
+This repo is now two things at once:
+
+- a low-latency C++ matching engine with strict price-time priority
+- a deterministic replay + features + inference pipeline on top of real AAPL LOBSTER-style events
+
+The matching core still supports:
 
 - `LIMIT`
 - `MARKET`
 - `CANCEL`
 
-The comparison uses three modes:
+The replay / inference layer adds:
 
-- `baseline_single_thread`
-- `optimized_single_thread`
-- `optimized_concurrent_pipeline`
+- deterministic historical event playback
+- order-book feature extraction
+- offline model evaluation
+- staged latency and throughput measurement
 
-The pipeline still keeps one matching thread. It adds lock-free transport around the matcher instead of matching one book on many threads.
+## System Architecture
+
+The current architecture is intentionally small:
+
+```text
+historical events
+  -> ReplayEngine
+  -> optimized_single_thread matcher
+  -> FeatureExtractor
+  -> optional InferenceEngine
+  -> metrics / evaluation artifacts
+```
+
+This keeps the strongest part of the repo intact: one fast deterministic matcher.
 
 ## Engine Variants
 
@@ -26,86 +45,182 @@ The pipeline still keeps one matching thread. It adds lock-free transport around
 
 - `std::map<price, std::deque<order>>`
 - level quantity recomputed by scanning
-- cancel finds the price level, then scans within that level
+- cancel scans within a level
 
 ### Optimized
 
-- direct order lookup by ID using stored iterators
+- direct order lookup by ID
 - cached quantity per price level
-- pooled PMR allocators for resting-order structures
+- pooled PMR allocators for resting order structures
 
 ### Pipeline
 
-- producer thread -> SPSC ingress queue -> matcher thread -> SPSC egress queue -> consumer thread
+- producer -> SPSC queue -> matcher -> SPSC queue -> consumer
 
-## Metrics
+Important:
 
-- throughput in ops/sec
-- service p50/p95/p99
-- end-to-end p50/p95/p99
-- queue delay p50/p95/p99
-- max queue depth
+- the pipeline still has one matcher thread
+- it is a queueing experiment, not true parallel matching of one book
 
-`service latency` is time spent inside the matcher.
+## Replay / Features / Inference
 
-`end-to-end latency` is total time through the system.
+Real data comes from a normalized AAPL LOBSTER event file. Events are replayed in deterministic sequence order.
 
-`queue delay` is `end_to_end - service`.
+After each processed event, the system computes features such as:
 
-## Current Results
+- spread
+- mid price
+- microprice
+- top-level imbalance
+- 3-level imbalance
+- depth slope
+- top-of-book depletion imbalance
+- market-order ratio
+- cancel ratio
+- rolling order-flow imbalance
+- last mid-price delta
+- last microprice delta
 
-### Balanced synthetic workload
+The model side compares:
 
-- Baseline: `6.69M ops/s`, service p99 `417 ns`
-- Optimized: `14.84M ops/s`, service p99 `125 ns`
-- Pipeline: `7.80M ops/s`, service p99 `125 ns`, end-to-end p99 `8.28 ms`
+- majority-class baseline
+- heuristic imbalance signal
+- linear model
+- tiny MLP
+- XGBoost
 
-### Real AAPL LOBSTER replay
+## Label Sweep
 
-- Baseline: `9.65M ops/s`, service p99 `167 ns`
-- Optimized: `16.11M ops/s`, service p99 `84 ns`
-- Pipeline: `9.86M ops/s`, service p99 `83 ns`, end-to-end p99 `2.93 ms`
+The project now evaluates multiple target definitions instead of assuming one label is correct.
 
-## Findings
+Tried targets:
 
-### 1. The optimized matcher is materially better
+- fixed horizon, 10 events
+- fixed horizon, 25 events
+- fixed horizon, 50 events
+- next non-zero move
+- thresholded horizon, 10 events, threshold 100
+- thresholded horizon, 25 events, threshold 100
+- thresholded horizon, 50 events, threshold 100
 
-The main gains come from:
+Best target:
 
-- removing cancel scans
-- caching level quantity
-- reducing allocator churn
+- `threshold_h25_t100`
 
-The matching policy itself did not change. The engine simply does less bookkeeping work per event.
+Meaning:
 
-### 2. Pipeline service time stays good, but queueing dominates
+- look 25 events ahead
+- treat moves smaller than 100 price units as flat/noise
+- then classify `down` vs `up`
 
-The pipeline does not make one order book process events in parallel. It only moves events between threads more efficiently.
+This turned out to be a better prediction target than the earlier noisier binary setup.
 
-That means:
+## Final Model Results
 
-- matcher service time can remain excellent
-- but end-to-end latency can still explode when the queue backs up
+Current selected evaluation on the AAPL replay:
 
-This is exactly what the benchmarks show.
+- target: `threshold_h25_t100`
+- train/test split: time-ordered
+- selection metric: macro F1, then accuracy
 
-### 3. For a single book, single-threaded optimization mattered more than concurrency
+Results:
 
-That is the central systems result of this repo.
+- majority class: accuracy `0.4687`, macro F1 `0.3191`
+- heuristic imbalance: accuracy `0.5601`, macro F1 `0.5547`
+- linear model: accuracy `0.4693`, macro F1 `0.3258`
+- tiny MLP: accuracy `0.4726`, macro F1 `0.3291`
+- XGBoost: accuracy `0.5070`, macro F1 `0.4594`
+
+## Model Latency
+
+The repo now also measures per-example offline inference latency for each model during evaluation.
+
+This is not the same thing as full replay-stage latency.
+
+- model latency = time to score one held-out example in the evaluator
+- stage latency = cost of replay + features + inference when integrated into the C++ pipeline
+
+That distinction matters:
+
+- the `Models` tab is about prediction quality and relative model cost
+- the `Analysis` tab is about system-level throughput and p50/p99 stage behavior
+
+## Systems Results
+
+### Core engine comparison on AAPL replay
+
+- Baseline: `11.54M ops/s`, service p99 `166 ns`
+- Optimized: `18.44M ops/s`, service p99 `84 ns`
+- Pipeline: `10.80M ops/s`, service p99 `83 ns`, end-to-end p99 `2.58 ms`
+
+Interpretation:
+
+- the optimized matcher is clearly better than baseline
+- the pipeline keeps matcher service time low
+- but end-to-end latency is worse because queueing dominates once handoff backlog builds
+
+### Stage-by-stage replay benchmark
+
+- matcher only: `19.13M ops/s`
+- replay + matcher: `9.28M ops/s`
+- replay + features: `7.36M ops/s`
+- replay + features + inference: `7.05M ops/s`
+
+Interpretation:
+
+- replay and features add real but understandable overhead
+- inference adds another small step down in throughput
+- the core matcher service latency stays low
+
+## Main Findings
+
+### 1. Better data structures mattered more than concurrency
+
+For one order book, the biggest win came from improving the single-threaded matcher itself.
+
+### 2. Target definition mattered more than model complexity
+
+Changing the label from a noisy short-horizon direction target to a thresholded horizon target helped more than switching from linear to neural or boosted models.
+
+### 3. The heuristic is still the best predictor right now
+
+That is not a failure. It means:
+
+- the evaluation is honest
+- the pipeline is real
+- more model complexity alone does not guarantee better signal
+
+### 4. The project is now both a systems project and an ML-systems project
+
+It demonstrates:
+
+- deterministic replay on real market events
+- low-latency matching
+- feature extraction
+- offline model comparison
+- latency/throughput measurement of inference integration
 
 ## Limitations
 
+- historical replay only, not a live exchange feed
 - one order book only
-- no hidden liquidity
-- no advanced exchange order types
-- checked-in profiling artifact is from macOS `sample` fallback on this machine, not Linux `perf`
+- no advanced order types
+- no strategy / PnL loop yet
+- model latency is measured offline per example, not yet exported as a per-event trace from the C++ replay loop
 
 ## Takeaway
 
-This repo is strongest as a quant/systems project because it demonstrates:
+This project is strongest because it connects:
 
-- deterministic exchange-style matching
-- baseline vs optimized benchmarking
-- real-data replay
-- service vs queue-delay decomposition
-- profiling-backed optimization workflow
+- market microstructure
+- low-latency C++
+- deterministic replay
+- feature engineering
+- lightweight inference
+- honest latency vs accuracy tradeoffs
+
+The final result is not “we found alpha.”
+
+The final result is:
+
+> we built a reproducible low-latency market replay and inference pipeline, tested multiple targets and models, and found that better label design and simple heuristics still beat heavier models on this current setup.

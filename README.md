@@ -6,13 +6,18 @@ Single-book C++20 matching engine project for quant-dev and systems interviews. 
 
 ## Abstract
 
-This project implements a deterministic limit order book with strict price-time priority for `LIMIT`, `MARKET`, and `CANCEL` events. It compares three execution modes:
+This project implements a deterministic limit order book with strict price-time priority for `LIMIT`, `MARKET`, and `CANCEL` events. It now has two layers:
+
+- a low-latency single-book matching core
+- a deterministic replay / features / inference path on top of historical events
+
+The core engine still compares three execution modes:
 
 - `baseline_single_thread`: simple reference implementation
 - `optimized_single_thread`: same matching rules, lower hot-path overhead
 - `optimized_concurrent_pipeline`: lock-free ingress/egress queues around the same single matching thread
 
-The optimized engine improves single-book throughput materially on both synthetic and real data. The concurrent pipeline keeps matcher service time low but worsens end-to-end latency under burst load because queueing dominates once the single matcher saturates.
+The optimized engine improves single-book throughput materially on both synthetic and real data. The concurrent pipeline keeps matcher service time low but worsens end-to-end latency under burst load because queueing dominates once the single matcher saturates. The new replay pipeline makes it possible to export labeled feature datasets, evaluate simple models offline, and benchmark the cost of integrating inference back into the engine loop.
 
 ## Research Question
 
@@ -104,16 +109,25 @@ Read the repo in this order:
 6. [src/dataset.cpp](/Users/rishabhsingh/Desktop/low-latency-order-book-sim/src/dataset.cpp)  
    Real dataset loader
 
-7. [src/benchmark.cpp](/Users/rishabhsingh/Desktop/low-latency-order-book-sim/src/benchmark.cpp)  
+7. [src/replay_engine.cpp](/Users/rishabhsingh/Desktop/low-latency-order-book-sim/src/replay_engine.cpp)  
+   Deterministic replay engine and stage-by-stage replay benchmarks
+
+8. [src/feature_extractor.cpp](/Users/rishabhsingh/Desktop/low-latency-order-book-sim/src/feature_extractor.cpp)  
+   Order-book feature extraction and labeled feature export
+
+9. [src/inference_engine.cpp](/Users/rishabhsingh/Desktop/low-latency-order-book-sim/src/inference_engine.cpp)  
+   Heuristic and linear-model inference path
+
+10. [src/benchmark.cpp](/Users/rishabhsingh/Desktop/low-latency-order-book-sim/src/benchmark.cpp)  
    Throughput/latency measurement
 
-8. [src/replay.cpp](/Users/rishabhsingh/Desktop/low-latency-order-book-sim/src/replay.cpp)  
+11. [src/replay.cpp](/Users/rishabhsingh/Desktop/low-latency-order-book-sim/src/replay.cpp)  
    Replay export for the dashboard
 
-9. [src/main.cpp](/Users/rishabhsingh/Desktop/low-latency-order-book-sim/src/main.cpp)  
+12. [src/main.cpp](/Users/rishabhsingh/Desktop/low-latency-order-book-sim/src/main.cpp)  
    CLI modes and report generation
 
-10. [tests/test_order_books.cpp](/Users/rishabhsingh/Desktop/low-latency-order-book-sim/tests/test_order_books.cpp)  
+13. [tests/test_order_books.cpp](/Users/rishabhsingh/Desktop/low-latency-order-book-sim/tests/test_order_books.cpp)  
     Correctness and determinism checks
 
 ## Experimental Setup
@@ -155,6 +169,44 @@ Definitions:
 
 For single-thread modes, end-to-end equals service and queue delay is zero.
 
+## Replay / Features / Inference
+
+The V2 path stays intentionally small:
+
+```text
+historical events -> ReplayEngine -> optimized matcher -> FeatureExtractor -> InferenceEngine
+```
+
+Core headers:
+
+- [include/lob/replay_engine.hpp](/Users/rishabhsingh/Desktop/low-latency-order-book-sim/include/lob/replay_engine.hpp)
+- [include/lob/features.hpp](/Users/rishabhsingh/Desktop/low-latency-order-book-sim/include/lob/features.hpp)
+- [include/lob/inference.hpp](/Users/rishabhsingh/Desktop/low-latency-order-book-sim/include/lob/inference.hpp)
+
+Current feature set:
+
+- spread
+- mid price
+- microprice
+- top-level imbalance
+- 3-level imbalance
+- depth slope
+- top-of-book depletion imbalance
+- market-order ratio
+- cancel ratio
+- rolling signed order-flow imbalance
+- last mid-price delta
+- last microprice delta
+
+Current inference options:
+
+- heuristic imbalance rule
+- linear softmax model loaded from exported weights
+- tiny MLP
+- XGBoost for offline comparison
+
+This keeps the matcher single-threaded and deterministic while adding enough ML systems structure to benchmark latency/accuracy tradeoffs honestly.
+
 ## Current Results
 
 These are fresh local runs from the current codebase.
@@ -171,9 +223,9 @@ Results:
 
 | Engine | Throughput (ops/s) | Service p50 (ns) | Service p99 (ns) | E2E p99 (ns) | Queue p99 (ns) |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| Baseline | 6.69M | 84 | 417 | 417 | 0 |
-| Optimized | 14.84M | 42 | 125 | 125 | 0 |
-| Pipeline | 7.80M | 41 | 125 | 8,281,210 | 8,281,170 |
+| Baseline | 8.06M | 83 | 375 | 375 | 0 |
+| Optimized | 16.33M | 41 | 84 | 84 | 0 |
+| Pipeline | 8.93M | 41 | 84 | 7,905,420 | 7,905,380 |
 
 Interpretation:
 
@@ -194,15 +246,68 @@ Results:
 
 | Engine | Throughput (ops/s) | Service p50 (ns) | Service p99 (ns) | E2E p99 (ns) | Queue p99 (ns) |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| Baseline | 9.65M | 83 | 167 | 167 | 0 |
-| Optimized | 16.11M | 42 | 84 | 84 | 0 |
-| Pipeline | 9.86M | 41 | 83 | 2,926,170 | 2,926,120 |
+| Baseline | 11.54M | 83 | 166 | 166 | 0 |
+| Optimized | 18.44M | 41 | 84 | 84 | 0 |
+| Pipeline | 10.80M | 41 | 83 | 2,575,710 | 2,575,710 |
 
 Interpretation:
 
 - optimized throughput is about `+67.0%` vs baseline on real data
 - optimized service p99 improves from `167 ns` to `84 ns`
 - pipeline service p99 is still excellent, but end-to-end latency is much worse because the queue backs up
+
+### Stage-by-stage replay benchmark
+
+Command:
+
+```bash
+./build/lob_simulator --mode benchmark-stages --dataset data/aapl_lobster_normalized.csv --depth 3 --output results/aapl_stage_bench_binary.csv
+```
+
+Results:
+
+| Mode | Throughput (ops/s) | Service p50 (ns) | Service p99 (ns) | E2E p50 (ns) | E2E p99 (ns) |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Matcher only | 19.13M | 41 | 83 | 41 | 83 |
+| Replay + matcher | 9.28M | 42 | 84 | 42 | 84 |
+| Replay + features | 7.36M | 41 | 83 | 42 | 84 |
+| Replay + features + heuristic inference | 7.05M | 41 | 83 | 42 | 125 |
+
+This is the main systems result for V2: feature extraction and lightweight inference add measurable overhead, but the core matcher service time remains essentially unchanged.
+
+### Predictive evaluation
+
+The project now sweeps several label definitions and keeps the best one:
+
+- fixed horizon: 10 / 25 / 50 events
+- next non-zero move
+- thresholded horizon with a 100-unit move threshold
+
+Best target:
+
+- `threshold_h25_t100`
+
+Meaning:
+
+- look 25 events ahead
+- treat moves smaller than 100 price units as flat/noise
+- classify the resulting move as `down` or `up`
+
+Final selected AAPL results:
+
+- majority class: accuracy `0.4687`, macro F1 `0.3191`
+- heuristic imbalance: accuracy `0.5601`, macro F1 `0.5547`
+- linear model: accuracy `0.4693`, macro F1 `0.3258`
+- tiny MLP: accuracy `0.4726`, macro F1 `0.3291`
+- XGBoost: accuracy `0.5070`, macro F1 `0.4594`
+
+The current winner is still the heuristic. That is actually a good outcome for the project because it shows:
+
+- the evaluation is real
+- target definition mattered more than adding model complexity
+- the repo can now compare predictive value against model/inference cost honestly
+
+The model evaluator also records per-example offline inference timing for each model, which is surfaced in the frontend `Models` tab alongside accuracy and macro F1.
 
 ## Main Finding
 
@@ -232,6 +337,10 @@ mkdir -p build
 clang++ -std=c++20 -O3 -pthread -Iinclude \
   src/engines/baseline_order_book.cpp \
   src/engines/optimized_order_book.cpp \
+  src/engines/intrusive_order_book.cpp \
+  src/feature_extractor.cpp \
+  src/inference_engine.cpp \
+  src/replay_engine.cpp \
   src/workload.cpp \
   src/dataset.cpp \
   src/replay.cpp \
@@ -242,6 +351,10 @@ clang++ -std=c++20 -O3 -pthread -Iinclude \
 clang++ -std=c++20 -O2 -pthread -Iinclude \
   src/engines/baseline_order_book.cpp \
   src/engines/optimized_order_book.cpp \
+  src/engines/intrusive_order_book.cpp \
+  src/feature_extractor.cpp \
+  src/inference_engine.cpp \
+  src/replay_engine.cpp \
   src/workload.cpp \
   src/dataset.cpp \
   src/replay.cpp \
@@ -285,6 +398,27 @@ clang++ -std=c++20 -O2 -pthread -Iinclude \
   --mode export-dashboard \
   --dataset data/aapl_lobster_normalized.csv \
   --output results/aapl_lobster.csv
+```
+
+### Feature export
+
+```bash
+./build/lob_simulator \
+  --mode export-features \
+  --dataset data/aapl_lobster_normalized.csv \
+  --depth 3 \
+  --horizon-events 10 \
+  --output results/aapl_features.csv
+```
+
+### Stage benchmark
+
+```bash
+./build/lob_simulator \
+  --mode benchmark-stages \
+  --dataset data/aapl_lobster_normalized.csv \
+  --depth 3 \
+  --output results/aapl_stage_bench.csv
 ```
 
 ### Frontend

@@ -1,0 +1,114 @@
+{
+  "input": "/Users/rishabhsingh/Desktop/low-latency-order-book-sim/results/aapl_features_best.csv",
+  "task": "binary",
+  "target_name": "threshold_h25_t100",
+  "label_mode": "thresholded_horizon",
+  "horizon_events": 25,
+  "move_threshold": 100,
+  "split": {
+    "train_rows": 22199,
+    "val_rows": 4757,
+    "test_rows": 4757
+  },
+  "selection_metric": "validation_macro_f1_then_accuracy",
+  "reports": [
+    {
+      "name": "heuristic_imbalance",
+      "accuracy": 0.553920538154299,
+      "macro_f1": 0.5503990591759915,
+      "confusion_matrix": [
+        [
+          1528,
+          916
+        ],
+        [
+          1206,
+          1107
+        ]
+      ],
+      "labels": [
+        "down",
+        "up"
+      ],
+      "inference_p50_ns": 375.0,
+      "inference_p95_ns": 375.0,
+      "inference_p99_ns": 417.0,
+      "feature_set": "pressure_core"
+    },
+    {
+      "name": "xgboost",
+      "accuracy": 0.5139793987807442,
+      "macro_f1": 0.5083951367781154,
+      "confusion_matrix": [
+        [
+          969,
+          1475
+        ],
+        [
+          837,
+          1476
+        ]
+      ],
+      "labels": [
+        "down",
+        "up"
+      ],
+      "inference_p50_ns": 119291.0,
+      "inference_p95_ns": 141958.0,
+      "inference_p99_ns": 181542.0,
+      "feature_set": "book_dynamics",
+      "validation_accuracy": 0.5589657347067479,
+      "validation_macro_f1": 0.5547844875888006
+    },
+    {
+      "name": "logistic_regression",
+      "accuracy": 0.5347908345595964,
+      "macro_f1": 0.4840342724361166,
+      "confusion_matrix": [
+        [
+          526,
+          1918
+        ],
+        [
+          295,
+          2018
+        ]
+      ],
+      "labels": [
+        "down",
+        "up"
+      ],
+      "inference_p50_ns": 1583.0,
+      "inference_p95_ns": 1667.0,
+      "inference_p99_ns": 1750.0,
+      "feature_set": "pressure_core",
+      "validation_accuracy": 0.574101324364095,
+      "validation_macro_f1": 0.5698120965795228
+    },
+    {
+      "name": "majority_class",
+      "accuracy": 0.48623081774227456,
+      "macro_f1": 0.32715700141442716,
+      "confusion_matrix": [
+        [
+          0,
+          2444
+        ],
+        [
+          0,
+          2313
+        ]
+      ],
+      "labels": [
+        "down",
+        "up"
+      ],
+      "inference_p50_ns": 42.0,
+      "inference_p95_ns": 84.0,
+      "inference_p99_ns": 84.0,
+      "feature_set": "none"
+    }
+  ],
+  "best_model": "heuristic_imbalance",
+  "deployable_recommendation": "heuristic_imbalance"
+}

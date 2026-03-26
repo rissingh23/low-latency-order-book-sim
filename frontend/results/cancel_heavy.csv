@@ -1,4 +1,5 @@
 engine,profile,orders,throughput_ops_per_sec,service_p50_ns,service_p95_ns,service_p99_ns,end_to_end_p50_ns,end_to_end_p95_ns,end_to_end_p99_ns,queue_delay_p50_ns,queue_delay_p95_ns,queue_delay_p99_ns,max_queue_depth,total_fills,total_rejects
-baseline_single_thread,cancel_heavy,200000,8869425.43,42.00,167.00,333.00,42.00,167.00,333.00,0.00,0.00,0.00,0,54246,42338
-optimized_single_thread,cancel_heavy,200000,20508439.07,41.00,42.00,83.00,41.00,42.00,83.00,0.00,0.00,0.00,0,54246,42338
-optimized_concurrent_pipeline,cancel_heavy,200000,9540676.08,41.00,42.00,83.00,6032417.00,7472625.00,7493334.00,6032375.00,7472583.00,7493333.00,65536,54246,42338
+baseline_single_thread,cancel_heavy,200000,14644683.73,42.00,125.00,208.00,42.00,125.00,208.00,0.00,0.00,0.00,0,54246,42338
+optimized_single_thread,cancel_heavy,200000,20256584.07,41.00,42.00,83.00,41.00,42.00,83.00,0.00,0.00,0.00,0,54246,42338
+intrusive_single_thread,cancel_heavy,200000,17606280.09,41.00,83.00,84.00,41.00,83.00,84.00,0.00,0.00,0.00,0,54246,64377
+optimized_concurrent_pipeline,cancel_heavy,200000,9382549.87,41.00,42.00,83.00,6122042.00,7605958.00,7617875.00,6122041.00,7605917.00,7617875.00,65536,54246,42338

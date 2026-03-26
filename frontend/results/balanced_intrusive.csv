@@ -1,0 +1,5 @@
+engine,profile,orders,throughput_ops_per_sec,service_p50_ns,service_p95_ns,service_p99_ns,end_to_end_p50_ns,end_to_end_p95_ns,end_to_end_p99_ns,queue_delay_p50_ns,queue_delay_p95_ns,queue_delay_p99_ns,max_queue_depth,total_fills,total_rejects
+baseline_single_thread,balanced,200000,5283666.86,125.00,375.00,542.00,125.00,375.00,542.00,0.00,0.00,0.00,0,146731,31483
+optimized_single_thread,balanced,200000,14338372.98,42.00,83.00,125.00,42.00,83.00,125.00,0.00,0.00,0.00,0,146731,31483
+intrusive_single_thread,balanced,200000,12693846.14,42.00,125.00,166.00,42.00,125.00,166.00,0.00,0.00,0.00,0,146731,31486
+optimized_concurrent_pipeline,balanced,200000,8076959.86,41.00,83.00,125.00,7528125.00,8559333.00,8774542.00,7528084.00,8559292.00,8774541.00,65536,146731,31483

@@ -28,12 +28,22 @@
       </header>
 
       <nav class="tabbar">
-        <button class="tab-button active" data-tab="simulator">Simulator</button>
-        <button class="tab-button" data-tab="analysis">Analysis</button>
+        <button class="tab-button active" data-tab="overview">Overview</button>
+        <button class="tab-button" data-tab="simulator">Simulator</button>
+        <button class="tab-button" data-tab="analysis">Performance</button>
+        <button class="tab-button" data-tab="models">Models</button>
         <button class="tab-button" data-tab="report">Report</button>
       </nav>
 
-      <section id="tab-simulator" class="tab-panel active">
+      <section id="tab-overview" class="tab-panel active">
+        <div id="overview-panel" class="overview-panel">
+          <article class="analysis-card">
+            <h2>Loading overview...</h2>
+          </article>
+        </div>
+      </section>
+
+      <section id="tab-simulator" class="tab-panel">
         <section class="sim-shell">
           <aside class="sim-rail">
             <section class="panel playback-panel">
@@ -185,6 +195,14 @@
         <div id="analysis-panel" class="analysis-panel">
           <article class="analysis-card">
             <h2>Loading analysis...</h2>
+          </article>
+        </div>
+      </section>
+
+      <section id="tab-models" class="tab-panel">
+        <div id="models-panel" class="analysis-panel">
+          <article class="analysis-card">
+            <h2>Loading model analysis...</h2>
           </article>
         </div>
       </section>

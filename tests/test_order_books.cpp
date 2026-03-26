@@ -1,4 +1,6 @@
+#include "lob/features.hpp"
 #include "lob/order_book.hpp"
+#include "lob/replay_engine.hpp"
 
 #include <cstdlib>
 #include <filesystem>
@@ -220,6 +222,13 @@ void run_determinism_check() {
   expect(direct.best_ask == pipelined.best_ask, "pipeline and direct book should match best ask");
 }
 
+void run_intrusive_order_book_check() {
+  auto intrusive = lob::make_intrusive_order_book(64);
+  run_shared_order_book_checks(*intrusive);
+  run_partial_cancel_check(*intrusive);
+  run_depth_consistency_check(*intrusive);
+}
+
 void run_csv_loader_check() {
   const auto dataset_path = std::filesystem::temp_directory_path() / "lob_dataset_test.csv";
   {
@@ -249,6 +258,35 @@ void run_csv_loader_check() {
   std::filesystem::remove(dataset_path);
 }
 
+void run_replay_and_feature_checks() {
+  const auto events = lob::generate_workload(lob::WorkloadProfile::Balanced, 256, 777);
+  auto book = lob::make_optimized_order_book(events.size());
+  lob::ReplayEngine replay(3);
+  lob::FeatureExtractor extractor(3);
+
+  struct Observer final : lob::ReplayObserver {
+    lob::FeatureExtractor& extractor;
+    std::size_t step_count{0};
+    bool saw_non_zero_mid{false};
+
+    explicit Observer(lob::FeatureExtractor& extractor) : extractor(extractor) {}
+
+    void on_step(const lob::ReplayStep& step) override {
+      const auto features = extractor.update(step.event, step.result, step.top, step.depth);
+      ++step_count;
+      saw_non_zero_mid = saw_non_zero_mid || features.mid_price != 0.0;
+    }
+  } observer{extractor};
+
+  replay.run(*book, events, &observer);
+  expect(observer.step_count == events.size(), "replay engine should visit every event exactly once");
+  expect(observer.saw_non_zero_mid, "feature extraction should eventually observe a non-zero mid price");
+
+  auto dataset_book = lob::make_optimized_order_book(events.size());
+  const auto rows = lob::build_labeled_feature_rows(*dataset_book, events, 3, 5);
+  expect(!rows.empty(), "labeled feature builder should emit rows for replayed data");
+}
+
 }  // namespace
 
 int main() {
@@ -265,8 +303,11 @@ int main() {
     run_depth_consistency_check(*optimized);
   }
 
+  run_intrusive_order_book_check();
+
   run_determinism_check();
   run_csv_loader_check();
+  run_replay_and_feature_checks();
 
   std::cout << "all tests passed\n";
   return 0;

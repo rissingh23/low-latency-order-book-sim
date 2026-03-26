@@ -1,4 +1,7 @@
 build/
+.conda-xgb/
+results/target_sweep/
+results/target_sweep_summary.json
 results/perf_*.csv
 perf.out
 perf.folded
