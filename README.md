@@ -8,7 +8,7 @@ Single-book C++20 matching engine project for quant-dev and systems interviews. 
 
 This project implements a deterministic limit order book with strict price-time priority for `LIMIT`, `MARKET`, and `CANCEL` events. It now has two layers:
 
-- a low-latency single-book matching core
+- a low-latency single-bookc matching core
 - a deterministic replay / features / inference path on top of historical events
 
 The core engine still compares three execution modes:
